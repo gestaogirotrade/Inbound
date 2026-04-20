@@ -15,7 +15,7 @@
 
 @layer utilities {
   .glass-card {
-    @apply bg-[#0a111e]/40 backdrop-blur-md border border-white/5 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)];
+    @apply bg-[#0a111e]/15 backdrop-blur-sm border border-white/5 shadow-[0_4px_16px_0_rgba(0,0,0,0.2)];
   }
   
   .glow-emerald {

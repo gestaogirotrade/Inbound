@@ -15,7 +15,14 @@ import {
   ResponsiveContainer,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  ComposedChart,
+  ReferenceLine,
+  LabelList
 } from 'recharts';
 import { 
   ChevronLeft, 
@@ -32,7 +39,20 @@ import {
   FileText,
   Truck,
   Box,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle,
+  Lock,
+  TrendingDown,
+  DollarSign,
+  RotateCcw,
+  ArrowUpRight,
+  ArrowDownRight,
+  Percent,
+  History,
+  Package,
+  Ticket,
+  Activity,
+  ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -105,108 +125,113 @@ const isAguardando = (d: LogisticsData) => {
 
 const SHEET_ID = '1kgo_BrjuyPp5zxOGaJJfucd6t9fdufE8KF2Po-aCkGk';
 const GID = '961088198';
+const MAPA_GID = '554302411';
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+const MAPA_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${MAPA_GID}`;
+const MAPA_CONCLUIDO_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('mapa concluído')}`;
+const BASETIME_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('basetime')}`;
+const TICKET_DIA_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=992823488`;
+const TICKET_DIA_ANTERIOR_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Ticket dia anterior')}`;
+const DEBITO_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('debito')}`;
+const MAPA_PENDENTE_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('mapa pendente')}`;
+
+const ALLOWED_SECTORS = [
+  'MERCEARIA SECA',
+  'BEBIDAS',
+  'LIMPEZA E LAVANDERIA',
+  'HIGIENE, SAUDE E BELEZA',
+  'AEROSOL'
+];
 
 // Reports View Component
-function ReportsView({ data, selectedDate, uniqueDates }: { data: LogisticsData[], selectedDate: string, uniqueDates: string[] }) {
-  const [activeReportTab, setActiveReportTab] = useState<'fechados' | 'abertos' | 'saldo'>('saldo');
-  const [activeReportSubject, setActiveReportSubject] = useState<'tickets' | 'devolucao'>('tickets');
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
-  
-  const todayIndex = uniqueDates.indexOf(selectedDate);
-  
-  // Filter data based on subject and active tab
-  const filteredDataByTab = useMemo(() => {
-    let subjectFiltered = data;
-    if (activeReportSubject === 'devolucao') {
-      subjectFiltered = data.filter(d => d.tipo.toUpperCase().includes('DEVOLUÇÃO') || d.tipo.toUpperCase().includes('DEVOLUCAO'));
-    }
-    // If subject is 'tickets', we show all data
-
-    if (activeReportTab === 'fechados') return subjectFiltered.filter(isFinalizado);
-    if (activeReportTab === 'abertos') return subjectFiltered.filter(d => isEmOperacao(d) || isAguardando(d));
-    return subjectFiltered;
-  }, [data, activeReportTab, activeReportSubject]);
-
-  // Get next 5 days (including today)
-  const forecastDates = uniqueDates.slice(todayIndex, todayIndex + 5);
-
-  const getStatsForDate = (date: string | null) => {
-    if (!date) return null;
-    const filtered = filteredDataByTab.filter(d => d.date === date);
-    const total = filtered.length;
-    const pallets = filtered.reduce((acc, item) => {
-      const p = parseInt((item.palete || '').toString().replace(/[^\d]/g, '')) || 0;
-      return acc + p;
-    }, 0);
-    
-    const cifList = filtered.filter(d => d.tipo.toUpperCase().includes('NÃO') || d.tipo.toUpperCase().includes('CIF'));
-    const fobList = filtered.filter(d => d.tipo.toUpperCase().includes('SIM') || d.tipo.toUpperCase().includes('FOB'));
-    const noshowList = filtered.filter(d => d.status.toLowerCase().includes('noshow'));
-    const recusadoList = filtered.filter(d => d.status.toLowerCase().includes('recusado'));
-    
-    const storage: Record<string, number> = {};
-    filtered.forEach(item => {
-      const type = (item.tipoArmazenagem || '').toUpperCase().trim();
-      const p = parseInt((item.palete || '').toString().replace(/[^\d]/g, '')) || 0;
-      if (type) storage[type] = (storage[type] || 0) + p;
+function ReportsView({ 
+  operadoresData, 
+  loading,
+  selectedDate,
+  setSelectedDate,
+  pendingLots,
+  pendingLoading
+}: { 
+  operadoresData: Record<string, Record<string, number>>,
+  loading: boolean,
+  selectedDate: string,
+  setSelectedDate: (date: string) => void,
+  pendingLots: number,
+  pendingLoading: boolean
+}) {
+  const shiftNames = useMemo(() => {
+    // Priority for Turno 1 and Turno 2
+    const names = Object.keys(operadoresData);
+    const result: string[] = [];
+    if (names.includes('TURNO 1')) result.push('TURNO 1');
+    if (names.includes('TURNO 2')) result.push('TURNO 2');
+    names.forEach(n => {
+      if (!result.includes(n)) result.push(n);
     });
+    return result;
+  }, [operadoresData]);
 
-    return { 
-      total, 
-      pallets, 
-      cif: cifList.length, 
-      fob: fobList.length, 
-      noshow: noshowList.length, 
-      recusado: recusadoList.length, 
-      storage,
-      cifSuppliers: cifList.map(d => d.fornecedor),
-      fobSuppliers: fobList.map(d => d.fornecedor),
-      noshowSuppliers: noshowList.map(d => d.fornecedor),
-      recusadoSuppliers: recusadoList.map(d => d.fornecedor)
-    };
-  };
+  const renderTurnoTable = (turno: Record<string, number> = {}, turnoName: string) => {
+    const operators = Object.entries(turno).sort((a, b) => b[1] - a[1]);
+    const totalPallets = operators.reduce((acc, [_, val]) => acc + val, 0);
 
-  const forecastData = forecastDates.map(date => ({
-    date,
-    stats: getStatsForDate(date)
-  }));
+    return (
+      <div className="glass-card tech-border rounded-xl flex flex-col overflow-hidden shadow-2xl h-full">
+        {/* Total Header Section */}
+        <div className="bg-emerald-900/20 border-b border-emerald-500/30 p-4 flex flex-col items-center justify-center">
+          <span className="text-[10px] font-black text-white uppercase tracking-[0.4em] mb-2">TOTAL {turnoName}</span>
+          <div className="relative">
+            <span className="text-5xl font-black text-white font-mono drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+              {totalPallets}
+            </span>
+            <div className="absolute -inset-2 bg-emerald-500/10 blur-xl rounded-full -z-10" />
+          </div>
+        </div>
 
-  // Aggregate all unique sectors across forecast days
-  const allSectors = Array.from(new Set(filteredDataByTab.map(item => (item.tipoArmazenagem || '').toUpperCase().trim()).filter(Boolean)))
-    .filter(sector => sector !== 'NA' && sector !== 'N/A');
-
-  const sectorTotals = allSectors.map((sector: string) => {
-    const total = forecastData.reduce((acc, d: any) => acc + ((d.stats?.storage as any)?.[sector] || 0), 0);
-    return { name: sector, total };
-  }).sort((a, b) => b.total - a.total);
-
-  const forecastSummary = {
-    cif: forecastData.reduce((acc, d: any) => acc + (d.stats?.cif || 0), 0),
-    fob: forecastData.reduce((acc, d: any) => acc + (d.stats?.fob || 0), 0),
-    noshow: forecastData.reduce((acc, d: any) => acc + (d.stats?.noshow || 0), 0),
-    recusado: forecastData.reduce((acc, d: any) => acc + (d.stats?.recusado || 0), 0),
-    total: forecastData.reduce((acc, d: any) => acc + (d.stats?.total || 0), 0),
-    cifSuppliers: Array.from(new Set(forecastData.flatMap((d: any) => d.stats?.cifSuppliers || []))),
-    fobSuppliers: Array.from(new Set(forecastData.flatMap((d: any) => d.stats?.fobSuppliers || []))),
-    noshowSuppliers: Array.from(new Set(forecastData.flatMap((d: any) => d.stats?.noshowSuppliers || []))),
-    recusadoSuppliers: Array.from(new Set(forecastData.flatMap((d: any) => d.stats?.recusadoSuppliers || [])))
-  };
-
-  const toggleCategory = (cat: string) => {
-    setExpandedCategory(expandedCategory === cat ? null : cat);
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em] border-b border-emerald-500/30 bg-emerald-500/10">
+                <th className="px-4 py-3 border-r border-white/5 w-1/2">OPERADORES</th>
+                <th className="px-4 py-3 text-center w-1/2">QUANTIDADE DE PALETE ALOCADO</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operators.length > 0 ? (
+                operators.map(([nome, qtd], idx) => (
+                  <tr key={idx} className="border-b border-white/5 hover:bg-emerald-500/5 transition-colors group">
+                    <td className="px-4 py-1 border-r border-white/5">
+                      <span className="text-[11px] font-bold text-white uppercase tracking-tight group-hover:text-emerald-400 transition-colors truncate block max-w-[150px]">{nome}</span>
+                    </td>
+                    <td className="px-4 py-1 text-center">
+                      <span className="text-lg font-black text-emerald-400 font-mono">{qtd}</span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={2} className="text-center py-10 text-slate-600 italic uppercase tracking-[0.3em] text-[10px]">
+                    Aguardando dados...
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
   return (
     <motion.div 
       key="reports"
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-2 relative"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-2 relative z-10"
     >
       {/* Background Logo Watermark */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[800px] opacity-[0.15] pointer-events-none z-0">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[800px] opacity-[0.05] pointer-events-none -z-10">
         <svg viewBox="0 0 48 32" className="w-full h-full overflow-visible">
           <path 
             d="M12 16 A8 8 0 1 1 28 16" 
@@ -214,7 +239,6 @@ function ReportsView({ data, selectedDate, uniqueDates }: { data: LogisticsData[
             stroke="white" 
             strokeWidth="1.5" 
             strokeLinecap="round"
-            className="drop-shadow-[0_0_20px_rgba(255,255,255,0.4)]"
           />
           <path 
             d="M36 16 A8 8 0 1 1 20 16" 
@@ -222,253 +246,2001 @@ function ReportsView({ data, selectedDate, uniqueDates }: { data: LogisticsData[
             stroke="#10b981" 
             strokeWidth="1.5" 
             strokeLinecap="round"
-            className="drop-shadow-[0_0_20px_rgba(16,185,129,0.4)]"
           />
         </svg>
       </div>
 
-      {/* Subject Selector */}
-      <div className="flex items-center gap-2 mb-2 relative z-10">
-        <button 
-          onClick={() => setActiveReportSubject('tickets')}
-          className={cn(
-            "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border",
-            activeReportSubject === 'tickets' 
-              ? "bg-emerald-500 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.4)]" 
-              : "bg-white/5 text-slate-500 border-white/5 hover:bg-white/10"
-          )}
-        >
-          Tickets Gerais
-        </button>
-        <button 
-          onClick={() => setActiveReportSubject('devolucao')}
-          className={cn(
-            "flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border",
-            activeReportSubject === 'devolucao' 
-              ? "bg-rose-500 text-white border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.4)]" 
-              : "bg-white/5 text-slate-500 border-white/5 hover:bg-white/10"
-          )}
-        >
-          Devoluções
-        </button>
-      </div>
-
-      {/* Tabs Row */}
-      <div className="flex flex-col gap-2 mb-4 relative z-10">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="h-[1px] flex-1 bg-white/5" />
-          <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em]">
-            {activeReportSubject === 'tickets' ? 'Módulo de Tickets Gerais' : 'Módulo de Devolução'}
-          </span>
-          <div className="h-[1px] flex-1 bg-white/5" />
+      <div className="flex justify-between items-center mb-0">
+        <div className="flex flex-col">
+          <h2 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+            <FileText className="w-6 h-6 text-emerald-500" />
+            Relatório de Armazenagem
+          </h2>
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] ml-9">Operadores e Alocação</span>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <button 
-            onClick={() => setActiveReportTab('fechados')}
-            className={cn(
-              "px-3 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-              activeReportTab === 'fechados' 
-                ? (activeReportSubject === 'tickets' ? "bg-emerald-600 text-white border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)]" : "bg-rose-500 text-white border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.4)]")
-                : "bg-white/5 text-slate-400 border-white/5 hover:bg-white/10"
-            )}
-          >
-            Finalizados
-          </button>
-          <button 
-            onClick={() => setActiveReportTab('abertos')}
-            className={cn(
-              "px-3 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-              activeReportTab === 'abertos' 
-                ? (activeReportSubject === 'tickets' ? "bg-blue-600 text-white border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.4)]" : "bg-orange-500 text-white border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.4)]")
-                : "bg-white/5 text-slate-400 border-white/5 hover:bg-white/10"
-            )}
-          >
-            Em Aberto
-          </button>
-          <button 
-            onClick={() => setActiveReportTab('saldo')}
-            className={cn(
-              "px-3 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-              activeReportTab === 'saldo' 
-                ? "bg-slate-700 text-white border-slate-600 shadow-[0_0_15px_rgba(71,85,105,0.4)]" 
-                : "bg-white/5 text-slate-400 border-white/5 hover:bg-white/10"
-            )}
-          >
-            Saldo Total
-          </button>
+        
+        <div className="flex items-center gap-4">
+          {loading && <Zap className="w-5 h-5 text-emerald-500 animate-spin" />}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch relative z-10">
-        {/* Card 1: Projeção 5 Dias */}
-        <div className="glass-card tech-border rounded-2xl p-4 flex flex-col gap-3">
-          <h3 className="text-[12px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1">PROJEÇÃO 5 DIAS (CARGAS / PALETES)</h3>
-          <div className="flex-1 flex flex-col gap-2">
-            {forecastData.map((d, idx) => (
-              <div key={idx} className={cn(
-                "flex justify-between items-center p-2 rounded-xl border",
-                idx === 0 ? "bg-emerald-500/10 border-emerald-500/30" : "bg-white/5 border-white/5"
-              )}>
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase truncate">{d.date}</span>
-                  <span className="text-[10px] text-slate-400">{d.stats?.pallets || 0} PLTS</span>
-                </div>
-                <span className={cn("text-2xl font-black font-mono", idx === 0 ? "text-white" : "text-slate-300")}>{d.stats?.total || 0}</span>
-              </div>
-            ))}
+      <div className="flex items-center justify-center gap-8 mb-2">
+        {shiftNames.length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+            <span className="text-[10px] font-black text-white uppercase tracking-[0.3em]">{shiftNames[0]}</span>
+          </div>
+        )}
+
+        {/* Pending Lots Card */}
+        <div className="glass-card tech-border px-6 py-2 rounded-xl flex items-center gap-4 bg-rose-500/10 border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.1)]">
+          <div className="flex flex-col items-center">
+            <span className="text-[9px] font-black text-rose-400 uppercase tracking-[0.3em] mb-1">Lotes Pendentes</span>
+            <div className="flex items-center gap-3">
+              <span className="text-3xl font-black text-white font-mono leading-none">
+                {pendingLoading ? '...' : pendingLots}
+              </span>
+              <Package className="w-5 h-5 text-rose-500" />
+            </div>
           </div>
         </div>
 
-        {/* Card 2: Total Paletes / Setor */}
-        <div className="glass-card tech-border rounded-2xl p-4 flex flex-col gap-2">
-          <h3 className="text-[12px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1">TOTAL PALETES / SETOR (5 DIAS)</h3>
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-1.5">
-            {sectorTotals.map((s, idx) => (
-              <div key={idx} className="flex justify-between items-center border-b border-white/5 pb-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase truncate max-w-[120px]">{s.name}</span>
-                <span className="text-[12px] font-black text-white font-mono">{s.total}</span>
-              </div>
-            ))}
+        {shiftNames.length > 1 && (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
+            <span className="text-[10px] font-black text-white uppercase tracking-[0.3em]">{shiftNames[1]}</span>
           </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {shiftNames.length > 0 ? (
+          shiftNames.map(name => (
+            <div key={name} className="flex flex-col h-full">
+              {renderTurnoTable(operadoresData[name], name)}
+            </div>
+          ))
+        ) : (
+          <div className="lg:col-span-2 glass-card tech-border rounded-xl p-10 flex flex-col items-center justify-center text-center">
+            <AlertCircle className="w-12 h-12 text-rose-500 mb-4 animate-pulse" />
+            <h3 className="text-xl font-black text-white uppercase mb-2">Dados não encontrados</h3>
+            <p className="text-slate-400 text-sm max-w-md">
+              Não foi possível carregar os dados da aba <span className="text-emerald-400 font-bold">"mapa concluído"</span>. 
+              Certifique-se de que o nome da aba está correto e que ela contém as colunas de <span className="text-emerald-400 font-bold">Operador</span> e <span className="text-emerald-400 font-bold">Lote</span>.
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function Login({ onLogin }: { onLogin: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === 'vermelho@2020') {
+      localStorage.setItem('giro_auth', 'true');
+      onLogin();
+    } else {
+      setError(true);
+      setTimeout(() => setError(false), 2000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background Watermark */}
+      <div className="absolute inset-0 opacity-[0.03] pointer-events-none overflow-hidden flex items-center justify-center">
+        <svg viewBox="0 0 48 32" className="w-[800px] h-[600px]">
+          <path d="M12 16 A8 8 0 1 1 28 16" fill="none" stroke="white" strokeWidth="1" />
+          <path d="M36 16 A8 8 0 1 1 20 16" fill="none" stroke="#10b981" strokeWidth="1" />
+        </svg>
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card tech-border p-8 rounded-2xl w-full max-w-md shadow-2xl relative overflow-hidden z-10"
+      >
+        <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
+        
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4 tech-border">
+            <Lock className="w-8 h-8 text-emerald-500" />
+          </div>
+          <h1 className="text-2xl font-black text-white uppercase tracking-tighter">Acesso Restrito</h1>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Giro Trade Logística</p>
         </div>
 
-        {/* Card 3: Resumo Operacional */}
-        <div className="glass-card tech-border rounded-2xl p-4 flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-[12px] font-black text-emerald-500 uppercase tracking-[0.3em]">RESUMO OPERACIONAL (5 DIAS)</h3>
-            <span className="text-[10px] font-bold text-slate-600">PROJEÇÃO_TOTAL</span>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha de Acesso</label>
+            <input 
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={cn(
+                "w-full bg-black/40 border-2 rounded-xl px-4 py-3 text-white font-mono outline-none transition-all",
+                error ? "border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" : "border-white/5 focus:border-emerald-500/50"
+              )}
+              placeholder="••••••••"
+              autoFocus
+            />
           </div>
+
+          <button 
+            type="submit"
+            className="w-full bg-emerald-500 hover:bg-emerald-400 text-black font-black py-4 rounded-xl uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] active:scale-[0.98]"
+          >
+            Entrar no Sistema
+          </button>
+        </form>
+
+        {error && (
+          <motion.p 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-rose-500 text-[10px] font-bold uppercase tracking-widest text-center mt-6"
+          >
+            Senha Incorreta. Tente novamente.
+          </motion.p>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+// BI View Component
+function AnalyticsView({ selectedDate }: { selectedDate: string }) {
+  const [biData, setBiData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+  const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
+  const [filters, setFilters] = useState({
+    year: 'Todos',
+    month: 'Todos',
+    day: 'Todos',
+    status: 'Todos',
+    supplier: 'Todos'
+  });
+
+  useEffect(() => {
+    const fetchBIData = async () => {
+      try {
+        setLoading(true);
+        const cacheBuster = `&t=${new Date().getTime()}`;
+        const response = await fetch(`${BASETIME_CSV_URL}${cacheBuster}`);
+        if (!response.ok) throw new Error('Falha ao buscar dados do basetime');
+        
+        const csvText = await response.text();
+        const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
+        if (rows.length < 2) return;
+
+        const parseRow = (row: string) => {
+          const cols: string[] = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < row.length; i++) {
+            const char = row[i];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              cols.push(current.trim().replace(/^"|"$/g, ''));
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cols.push(current.trim().replace(/^"|"$/g, ''));
+          return cols;
+        };
+
+        const headers = parseRow(rows[0]).map(h => h.toLowerCase());
+        const dateIdx = headers.findIndex(h => h.includes('data') || h.includes('date'));
+        const statusIdx = headers.findIndex(h => h.includes('status') || h.includes('situação') || h.includes('situacao'));
+        const supplierIdx = headers.findIndex(h => h.includes('fornecedor') || h.includes('cliente') || h.includes('empresa'));
+        const senhaIdx = headers.findIndex(h => h.includes('senha') || h.includes('token') || h.includes('password')) !== -1 
+          ? headers.findIndex(h => h.includes('senha') || h.includes('token') || h.includes('password'))
+          : 4; // Coluna E
+
+        const parsed = rows.slice(1).map(row => {
+          const cols = parseRow(row);
+          const dateStr = cols[dateIdx] || '';
+          let day = '', month = '', year = '';
           
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
-            {/* CIF */}
-            <div className="flex flex-col border-b border-white/5 pb-2">
-              <div 
-                className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded transition-colors"
-                onClick={() => toggleCategory('cif')}
-              >
-                <div className="flex items-center gap-2">
-                  {expandedCategory === 'cif' ? <ChevronUp className="w-3 h-3 text-slate-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
-                  <span className="text-[12px] font-bold text-slate-400 uppercase">NÃO (CIF)</span>
-                </div>
-                <div className="bg-slate-800/50 px-2 py-0.5 rounded text-[12px] font-black text-white font-mono">{forecastSummary.cif}</div>
-              </div>
-              {expandedCategory === 'cif' && (
-                <div className="mt-2 pl-5 flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
-                  {forecastSummary.cifSuppliers.length > 0 ? (
-                    forecastSummary.cifSuppliers.map((s, i) => (
-                      <span key={i} className="text-[10px] text-slate-500 truncate">• {s}</span>
-                    ))
-                  ) : (
-                    <span className="text-[10px] text-slate-600 italic">Nenhum fornecedor</span>
-                  )}
-                </div>
-              )}
-            </div>
+          if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            day = parts[0];
+            month = parts[1];
+            // Handle 22/05/2026 or 22/05/26
+            year = parts[2] ? (parts[2].trim().length === 2 ? `20${parts[2].trim()}` : parts[2].trim()) : '2026';
+          } else if (dateStr.includes('-')) {
+            const parts = dateStr.split('-');
+            if (parts[0].length === 4) {
+              // YYYY-MM-DD
+              year = parts[0];
+              month = parts[1];
+              day = parts[2];
+            } else {
+              // DD-MM-YYYY
+              day = parts[0];
+              month = parts[1];
+              year = parts[2];
+            }
+          }
 
-            {/* FOB */}
-            <div className="flex flex-col border-b border-white/5 pb-2">
-              <div 
-                className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded transition-colors"
-                onClick={() => toggleCategory('fob')}
-              >
-                <div className="flex items-center gap-2">
-                  {expandedCategory === 'fob' ? <ChevronUp className="w-3 h-3 text-slate-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
-                  <span className="text-[12px] font-bold text-slate-400 uppercase">SIM (FOB)</span>
-                </div>
-                <div className="bg-slate-800/50 px-2 py-0.5 rounded text-[12px] font-black text-white font-mono">{forecastSummary.fob}</div>
-              </div>
-              {expandedCategory === 'fob' && (
-                <div className="mt-2 pl-5 flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
-                  {forecastSummary.fobSuppliers.length > 0 ? (
-                    forecastSummary.fobSuppliers.map((s, i) => (
-                      <span key={i} className="text-[10px] text-slate-500 truncate">• {s}</span>
-                    ))
-                  ) : (
-                    <span className="text-[10px] text-slate-600 italic">Nenhum fornecedor</span>
-                  )}
-                </div>
-              )}
-            </div>
+          return {
+            date: dateStr,
+            day: day.trim().padStart(2, '0'),
+            month: month.trim().padStart(2, '0'),
+            year: year.trim(),
+            status: (cols[statusIdx] || '').toUpperCase(),
+            fornecedor: (cols[supplierIdx] || '').toUpperCase(),
+            senha: cols[senhaIdx] || '',
+          };
+        });
 
-            {/* NOSHOW */}
-            <div className="flex flex-col border-b border-white/5 pb-2">
-              <div 
-                className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded transition-colors"
-                onClick={() => toggleCategory('noshow')}
-              >
-                <div className="flex items-center gap-2">
-                  {expandedCategory === 'noshow' ? <ChevronUp className="w-3 h-3 text-slate-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
-                  <span className="text-[12px] font-bold text-rose-500 uppercase">NOSHOW</span>
-                </div>
-                <div className="bg-slate-800/50 px-2 py-0.5 rounded text-[12px] font-black text-white font-mono">{forecastSummary.noshow}</div>
-              </div>
-              {expandedCategory === 'noshow' && (
-                <div className="mt-2 pl-5 flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
-                  {forecastSummary.noshowSuppliers.length > 0 ? (
-                    forecastSummary.noshowSuppliers.map((s, i) => (
-                      <span key={i} className="text-[10px] text-rose-400/70 truncate">• {s}</span>
-                    ))
-                  ) : (
-                    <span className="text-[10px] text-slate-600 italic">Nenhum fornecedor</span>
-                  )}
-                </div>
-              )}
-            </div>
+        setBiData(parsed);
+      } catch (err) {
+        console.error('Erro Analytics:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-            {/* RECUSADO */}
-            <div className="flex flex-col border-b border-white/5 pb-2">
-              <div 
-                className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded transition-colors"
-                onClick={() => toggleCategory('recusado')}
-              >
-                <div className="flex items-center gap-2">
-                  {expandedCategory === 'recusado' ? <ChevronUp className="w-3 h-3 text-slate-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
-                  <span className="text-[12px] font-bold text-rose-500 uppercase">RECUSADO</span>
-                </div>
-                <div className="bg-slate-800/50 px-2 py-0.5 rounded text-[12px] font-black text-white font-mono">{forecastSummary.recusado}</div>
-              </div>
-              {expandedCategory === 'recusado' && (
-                <div className="mt-2 pl-5 flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar">
-                  {forecastSummary.recusadoSuppliers.length > 0 ? (
-                    forecastSummary.recusadoSuppliers.map((s, i) => (
-                      <span key={i} className="text-[10px] text-rose-400/70 truncate">• {s}</span>
-                    ))
-                  ) : (
-                    <span className="text-[10px] text-slate-600 italic">Nenhum fornecedor</span>
-                  )}
-                </div>
-              )}
+    fetchBIData();
+  }, []);
+
+  const filteredData = useMemo(() => {
+    return biData.filter(item => {
+      const supplier = (item.fornecedor || '') as string;
+      if (!supplier || supplier.trim() === '') return false;
+      if (filters.year !== 'Todos' && item.year !== filters.year) return false;
+      if (filters.month !== 'Todos' && item.month !== filters.month) return false;
+      if (filters.day !== 'Todos' && item.day !== filters.day) return false;
+      if (filters.status !== 'Todos' && item.status !== filters.status) return false;
+      if (filters.supplier !== 'Todos' && item.fornecedor !== filters.supplier) return false;
+      return true;
+    });
+  }, [biData, filters]);
+
+  const supplierStats = useMemo(() => {
+    const stats: Record<string, { name: string, displayName: string, agendamentos: number, noshow: number }> = {};
+    filteredData.forEach(item => {
+      const name = item.fornecedor || 'DESCONHECIDO';
+      if (!stats[name]) {
+        stats[name] = { 
+          name, 
+          displayName: name.split(/\s+/).slice(0, 2).join(' '),
+          agendamentos: 0, 
+          noshow: 0 
+        };
+      }
+      stats[name].agendamentos++;
+      if (item.status.includes('NOSHOW')) {
+        stats[name].noshow++;
+      }
+    });
+    return Object.values(stats).sort((a, b) => b.agendamentos - a.agendamentos).slice(0, 15);
+  }, [filteredData]);
+
+  const serviceLevelStats = useMemo(() => {
+    const stats = supplierStats.map(s => ({
+      name: s.displayName,
+      percentage: s.agendamentos > 0 ? Math.round(((s.agendamentos - s.noshow) / s.agendamentos) * 100) : 0,
+      count: s.agendamentos
+    }));
+    const best = [...stats].sort((a, b) => b.percentage - a.percentage).slice(0, 5);
+    const worst = [...stats].sort((a, b) => a.percentage - b.percentage).slice(0, 5);
+    return { best, worst };
+  }, [supplierStats]);
+
+  const dailyStats = useMemo(() => {
+    const rawStats: Record<string, { date: string, total: number, noshowCount: number }> = {};
+    filteredData.forEach(item => {
+      const date = item.date;
+      if (!rawStats[date]) rawStats[date] = { date, total: 0, noshowCount: 0 };
+      rawStats[date].total++;
+      if (item.status.toUpperCase().includes('NOSHOW')) {
+        rawStats[date].noshowCount++;
+      }
+    });
+
+    return Object.values(rawStats).map(s => {
+      const extras = Math.max(0, s.total - 15);
+      const remaining = s.total - extras; // capped at 15
+      const noshow = Math.min(remaining, s.noshowCount);
+      const agendamentos = remaining - noshow;
+
+      return {
+        date: s.date,
+        agendamentos,
+        noshow,
+        extras
+      };
+    }).sort((a, b) => {
+      const parse = (d: string) => {
+        const p = d.split('/');
+        return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime();
+      };
+      return parse(a.date) - parse(b.date);
+    });
+  }, [filteredData]);
+
+  const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+  const monthNames: Record<string, string> = {
+    '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril', '05': 'Maio', '06': 'Junho',
+    '07': 'Julho', '08': 'Agosto', '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+  };
+
+  const suppliers = useMemo(() => {
+    return Array.from(new Set(biData.map(d => d.fornecedor as string)))
+      .filter((name: string) => name && name.trim() !== '')
+      .sort();
+  }, [biData]);
+
+  const statuses = useMemo(() => {
+    return Array.from(new Set(biData.map(d => d.status))).sort();
+  }, [biData]);
+
+  const totals = useMemo(() => {
+    let agendamentos = 0;
+    let noshow = 0;
+    filteredData.forEach(item => {
+      agendamentos++;
+      if (item.status.includes('NOSHOW')) noshow++;
+    });
+    return { agendamentos, noshow };
+  }, [filteredData]);
+
+  const noshowReportData = useMemo(() => {
+    const monthlyData: Record<string, { 
+      month: string, 
+      count: number, 
+      total: number, 
+      index: number, 
+      suppliers: Record<string, { count: number, details: { date: string, senha: string }[] }> 
+    }> = {};
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+    filteredData.forEach(item => {
+      const status = (item.status || '').toLowerCase();
+      if (status.includes('noshow')) {
+        const monthIdx = parseInt(item.month) - 1;
+        if (monthIdx >= 0 && monthIdx < 12) {
+          const monthName = monthNames[monthIdx];
+          if (!monthlyData[monthName]) {
+            monthlyData[monthName] = { month: monthName, count: 0, total: 0, index: monthIdx, suppliers: {} };
+          }
+          monthlyData[monthName].count += 1;
+          monthlyData[monthName].total += 1000;
+
+          const supplier = (item.fornecedor || 'NÃO IDENTIFICADO').trim().toUpperCase();
+          const displaySupplier = supplier.split(/\s+/).slice(0, 2).join(' ');
+          
+          if (!monthlyData[monthName].suppliers[displaySupplier]) {
+            monthlyData[monthName].suppliers[displaySupplier] = { count: 0, details: [] };
+          }
+          monthlyData[monthName].suppliers[displaySupplier].count += 1;
+          monthlyData[monthName].suppliers[displaySupplier].details.push({ date: item.date, senha: item.senha });
+        }
+      }
+    });
+
+    return Object.values(monthlyData).sort((a, b) => a.index - b.index);
+  }, [filteredData]);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <RotateCcw className="w-12 h-12 text-emerald-500 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2">
+      <div className="grid grid-cols-12 gap-4">
+        {/* Filters Panel */}
+        <div className="col-span-2 glass-card tech-border p-4 flex flex-col gap-4">
+          <h3 className="text-xl font-black text-white uppercase tracking-widest border-b border-white/10 pb-2">FILTROS</h3>
+          
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Ano</label>
+            <select 
+              value={filters.year}
+              onChange={(e) => setFilters({...filters, year: e.target.value})}
+              className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              <option value="Todos">Todos</option>
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Mês</label>
+            <select 
+              value={filters.month}
+              onChange={(e) => setFilters({...filters, month: e.target.value})}
+              className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              <option value="Todos">Todos</option>
+              {months.map(m => <option key={m} value={m}>{monthNames[m]}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Dia</label>
+            <select 
+              value={filters.day}
+              onChange={(e) => setFilters({...filters, day: e.target.value})}
+              className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              <option value="Todos">Todos</option>
+              {Array.from({length: 31}, (_, i) => (i + 1).toString().padStart(2, '0')).map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Status</label>
+            <select 
+              value={filters.status}
+              onChange={(e) => setFilters({...filters, status: e.target.value})}
+              className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              <option value="Todos">Todos</option>
+              {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-500 uppercase">Fornecedor</label>
+            <select 
+              value={filters.supplier}
+              onChange={(e) => setFilters({...filters, supplier: e.target.value})}
+              className="bg-slate-900 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-emerald-500"
+            >
+              <option value="Todos">Todos</option>
+              {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Charts Panel */}
+        <div className="col-span-10 flex flex-col gap-4">
+          {/* Totals Highlight */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="glass-card tech-border p-4 flex flex-col items-center justify-center bg-blue-500/10">
+              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-[0.4em]">TOTAL AGENDAMENTOS</span>
+              <span className="text-4xl font-black text-white font-mono">{totals.agendamentos}</span>
+            </div>
+            <div className="glass-card tech-border p-4 flex flex-col items-center justify-center bg-rose-500/10">
+              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-[0.4em]">TOTAL NO-SHOW</span>
+              <span className="text-4xl font-black text-white font-mono">{totals.noshow}</span>
             </div>
           </div>
 
-          <div className="mt-auto pt-4 border-t border-emerald-500/20 flex justify-between items-center">
-            <span className="text-[12px] font-black text-emerald-500 uppercase tracking-widest">TOTAL</span>
-            <span className="text-3xl font-black text-emerald-400 font-mono drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">
-              {forecastSummary.total}
+          {/* Main Charts Section */}
+          <div className="grid grid-cols-1 gap-6">
+            {/* Agendamentos x No-Show */}
+            {/* Daily Agendamentos */}
+            <div className="glass-card tech-border p-6 h-[450px]">
+              <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-6 underline decoration-emerald-500/30 underline-offset-4">Quantidade de Agendamentos por dia</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={dailyStats} margin={{ bottom: 30, left: 10, right: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }} 
+                    dy={10}
+                  />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                    itemStyle={{ fontSize: 11, fontWeight: 900 }}
+                  />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    iconType="circle"
+                    wrapperStyle={{ paddingTop: '30px', fontSize: 12, fontWeight: 800 }}
+                    formatter={(value) => <span className="text-slate-200 uppercase tracking-widest">{value}</span>}
+                  />
+                  <Bar dataKey="agendamentos" name="Agendamentos" stackId="a" fill="#3b82f6" isAnimationActive={false}>
+                    <LabelList dataKey="agendamentos" position="center" fill="white" fontSize={9} fontWeight="bold" formatter={(val: any) => val > 0 ? val : ''} />
+                  </Bar>
+                  <Bar dataKey="noshow" name="No-show" stackId="a" fill="#ef4444" isAnimationActive={false}>
+                    <LabelList dataKey="noshow" position="center" fill="white" fontSize={9} fontWeight="bold" formatter={(val: any) => val > 0 ? val : ''} />
+                  </Bar>
+                  <Bar dataKey="extras" name="Extras" stackId="a" fill="#10b981" isAnimationActive={false}>
+                    <LabelList dataKey="extras" position="center" fill="white" fontSize={9} fontWeight="bold" formatter={(val: any) => val > 0 ? val : ''} />
+                  </Bar>
+                  <ReferenceLine y={15} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'right', value: 'Capacidade (15)', fill: '#ef4444', fontSize: 10, fontWeight: 'bold' }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Supplier Stats */}
+            <div className="glass-card tech-border p-6 h-[500px]">
+              <h3 className="text-[10px] font-black text-white uppercase tracking-widest mb-6">Quantidade agendamento x No-show</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={supplierStats} margin={{ bottom: 150 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                  <XAxis 
+                    dataKey="displayName" 
+                    tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 700 }} 
+                    angle={-45} 
+                    textAnchor="end" 
+                    interval={0}
+                    height={150}
+                  />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                    itemStyle={{ fontSize: 11, fontWeight: 900 }}
+                  />
+                  <Legend 
+                    verticalAlign="top" 
+                    height={36} 
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 12, fontWeight: 800 }} 
+                    formatter={(value) => <span className="text-slate-200 uppercase tracking-widest">{value}</span>}
+                  />
+                  <Bar dataKey="agendamentos" name="Agendamentos" stackId="a" fill="#3b82f6" isAnimationActive={false}>
+                    <LabelList dataKey="agendamentos" position="center" fill="white" fontSize={10} fontWeight="bold" />
+                  </Bar>
+                  <Bar dataKey="noshow" name="No-shows" stackId="a" fill="#ef4444" isAnimationActive={false}>
+                    <LabelList dataKey="noshow" position="center" fill="white" fontSize={10} fontWeight="bold" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* No-Show Charts Section */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Quantity Chart */}
+            <div className="glass-card tech-border rounded-2xl p-6 flex flex-col gap-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Quantidade Mensal No-Show</span>
+                <BarChart3 className="w-4 h-4 text-rose-500" />
+              </div>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={noshowReportData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                    <XAxis 
+                      dataKey="month" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                      itemStyle={{ color: '#f43f5e', fontSize: 12, fontWeight: 900 }}
+                    />
+                    <Bar dataKey="count" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={40} isAnimationActive={false}>
+                      <LabelList dataKey="count" position="top" fill="#f43f5e" fontSize={10} fontWeight="bold" />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Cost Chart */}
+            <div className="glass-card tech-border rounded-2xl p-6 flex flex-col gap-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-white uppercase tracking-widest">Lucro Acumulado No-Show</span>
+                <DollarSign className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={noshowReportData}>
+                    <defs>
+                      <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                    <XAxis 
+                      dataKey="month" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }}
+                      tickFormatter={(value) => `R$ ${value/1000}k`}
+                    />
+                    <Tooltip 
+                      formatter={(value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)}
+                      contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="total" 
+                      stroke="#10b981" 
+                      strokeWidth={3}
+                      fillOpacity={1} 
+                      fill="url(#colorTotal)" 
+                      isAnimationActive={false}
+                    >
+                      <LabelList 
+                        dataKey="total" 
+                        position="top" 
+                        fill="#10b981" 
+                        fontSize={10} 
+                        fontWeight="bold"
+                        formatter={(value: number) => `R$ ${value/1000}k`}
+                      />
+                    </Area>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* No-Show Report Table (Integrated) */}
+          <div className="glass-card tech-border rounded-2xl overflow-hidden mb-6">
+            <div className="p-4 border-b border-white/10 bg-black/20 flex items-center justify-between">
+              <h3 className="text-[10px] font-black text-white uppercase tracking-widest">DETALHAMENTO MENSAL DE NOSHOW</h3>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span className="text-[8px] font-bold text-slate-400 uppercase">Total: {totals.noshow}</span>
+                </div>
+              </div>
+            </div>
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="text-[10px] font-black text-white uppercase tracking-widest border-b border-white/10 bg-black/40">
+                  <th className="px-6 py-4 w-10"></th>
+                  <th className="px-6 py-4">MÊS REFERÊNCIA</th>
+                  <th className="px-6 py-4 text-center">QUANTIDADE NOSHOW</th>
+                  <th className="px-6 py-4 text-right">VALOR ESTIMADO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {noshowReportData.map((d, i) => {
+                  const isExpanded = expandedMonth === d.month;
+                  return (
+                    <React.Fragment key={i}>
+                      <tr 
+                        className={cn(
+                          "border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer",
+                          isExpanded && "bg-emerald-500/5"
+                        )}
+                        onClick={() => setExpandedMonth(isExpanded ? null : d.month)}
+                      >
+                        <td className="px-6 py-4 text-center">
+                          <motion.div
+                            animate={{ rotate: isExpanded ? 180 : 0 }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            <ChevronDown className={cn("w-4 h-4", isExpanded ? "text-emerald-500" : "text-slate-500")} />
+                          </motion.div>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-white uppercase tracking-tighter">{d.month}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="bg-rose-500/10 text-rose-500 px-3 py-1 rounded-full font-mono font-black text-sm">
+                            {d.count}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right font-mono font-black text-emerald-400">
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(d.total)}
+                        </td>
+                      </tr>
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={4} className="p-0">
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden bg-black/20"
+                              >
+                                <div className="px-16 py-6 border-b border-white/5">
+                                  <div className="flex items-center gap-3 mb-4">
+                                    <Truck className="w-4 h-4 text-emerald-500" />
+                                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Fornecedores com NOSHOW em {d.month}</span>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {(Object.entries(d.suppliers) as [string, { count: number, details: { date: string, senha: string }[] }][])
+                                      .sort((a, b) => b[1].count - a[1].count)
+                                      .map(([supplier, info], sIdx) => {
+                                        const isSupplierExpanded = expandedSupplier === `${d.month}-${supplier}`;
+                                        return (
+                                          <div key={sIdx} className="flex flex-col gap-2">
+                                            <div 
+                                              onClick={() => setExpandedSupplier(isSupplierExpanded ? null : `${d.month}-${supplier}`)}
+                                              className={cn(
+                                                "flex justify-between items-center bg-white/5 p-3 rounded-lg border border-white/5 cursor-pointer hover:bg-white/10 transition-colors",
+                                                isSupplierExpanded && "border-emerald-500/50 bg-emerald-500/5"
+                                              )}
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 rounded-full bg-white/10 flex items-center justify-center">
+                                                  {isSupplierExpanded ? <ChevronUp className="w-3 h-3 text-emerald-500" /> : <ChevronDown className="w-3 h-3 text-slate-500" />}
+                                                </div>
+                                                <span className="text-[10px] font-bold text-slate-300 uppercase truncate pr-4">{supplier}</span>
+                                              </div>
+                                              <span className="text-[10px] font-black text-white font-mono bg-rose-500/20 px-2 py-0.5 rounded">{info.count}</span>
+                                            </div>
+                                            <AnimatePresence>
+                                              {isSupplierExpanded && (
+                                                <motion.div
+                                                  initial={{ height: 0, opacity: 0 }}
+                                                  animate={{ height: "auto", opacity: 1 }}
+                                                  exit={{ height: 0, opacity: 0 }}
+                                                  className="overflow-hidden bg-black/40 rounded-lg border border-white/5"
+                                                >
+                                                  <div className="p-3 flex flex-col gap-1">
+                                                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest mb-1">Datas e Senhas:</span>
+                                                    <div className="flex flex-col gap-1">
+                                                      {info.details.map((detail, dIdx) => (
+                                                        <div key={dIdx} className="flex justify-between items-center text-[9px] font-mono text-slate-400 bg-white/5 px-2 py-1 rounded border border-white/5">
+                                                          <span>{detail.date}</span>
+                                                          <span className="text-emerald-400 font-bold">{detail.senha}</span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                </motion.div>
+                                              )}
+                                            </AnimatePresence>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            </td>
+                          </tr>
+                        )}
+                      </AnimatePresence>
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const formatSupplierName = (name: string) => {
+  if (!name) return '';
+  // Remove quotes if any
+  const cleanName = name.replace(/^"|"$/g, '').trim();
+  const words = cleanName.split(/\s+/);
+  // Return only first two names as requested
+  return words.slice(0, 2).join(' ');
+};
+
+function DailyReportView({ 
+  stats, 
+  mapaData, 
+  mapaLoading,
+  operadoresData,
+  operadoresLoading,
+  pendingLots,
+  pendingLoading 
+}: { 
+  stats: any, 
+  mapaData: Record<string, number>, 
+  mapaLoading: boolean,
+  operadoresData: Record<string, Record<string, number>>,
+  operadoresLoading: boolean,
+  pendingLots: number,
+  pendingLoading: boolean
+}) {
+  const [ticketDiaData, setTicketDiaData] = useState<{ colA: string, date: string, delay: string }[]>([]);
+  const [ticketDiaAnteriorData, setTicketDiaAnteriorData] = useState<{ colA: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const shiftNames = useMemo(() => {
+    const names = Object.keys(operadoresData);
+    const result: string[] = [];
+    if (names.includes('TURNO 1')) result.push('TURNO 1');
+    if (names.includes('TURNO 2')) result.push('TURNO 2');
+    names.forEach(n => {
+      if (!result.includes(n)) result.push(n);
+    });
+    return result;
+  }, [operadoresData]);
+
+  const totalPalletsByShift = useMemo(() => {
+    const totals: Record<string, number> = {};
+    Object.entries(operadoresData).forEach(([shift, operators]) => {
+      totals[shift] = Object.values(operators).reduce((acc, val) => acc + val, 0);
+    });
+    return totals;
+  }, [operadoresData]);
+
+  const renderTurnoTable = (turno: Record<string, number> = {}, turnoName: string) => {
+    const operators = Object.entries(turno).sort((a, b) => b[1] - a[1]);
+    const totalPallets = operators.reduce((acc, [_, val]) => acc + val, 0);
+
+    return (
+      <div className="glass-card tech-border rounded-xl flex flex-col overflow-hidden shadow-2xl h-full">
+        <div className="bg-emerald-900/20 border-b border-emerald-500/30 p-3 flex flex-col items-center justify-center">
+          <span className="text-[9px] font-black text-white uppercase tracking-[0.4em] mb-1">TOTAL {turnoName}</span>
+          <div className="relative">
+            <span className="text-3xl font-black text-white font-mono drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]">
+              {totalPallets}
             </span>
           </div>
         </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.2em] border-b border-emerald-500/30 bg-emerald-500/10">
+                <th className="px-3 py-2 border-r border-white/5">OPERADOR</th>
+                <th className="px-3 py-2 text-center text-white/50">QTD</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operators.length > 0 ? (
+                operators.map(([nome, qtd], idx) => (
+                  <tr key={idx} className="border-b border-white/5 hover:bg-emerald-500/5 transition-colors group">
+                    <td className="px-3 py-1 border-r border-white/5">
+                      <span className="text-[10px] font-bold text-white uppercase truncate block max-w-[120px]">{nome}</span>
+                    </td>
+                    <td className="px-3 py-1 text-center font-black text-emerald-400 font-mono text-sm">
+                      {qtd}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={2} className="text-center py-6 text-slate-600 italic uppercase tracking-[0.3em] text-[9px]">
+                    ...
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const getBusinessDaysCount = (dateStr: string) => {
+    try {
+      let d: Date;
+      const pureDate = dateStr.split(/\s+/)[0];
+      if (pureDate.includes('/')) {
+        const parts = pureDate.split('/');
+        d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      } else {
+        d = new Date(pureDate);
+      }
+      if (isNaN(d.getTime())) return 0;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const current = new Date(d);
+      current.setHours(0, 0, 0, 0);
+      let count = 0;
+      const tempDate = new Date(current);
+      while (tempDate < today) {
+        tempDate.setDate(tempDate.getDate() + 1);
+        const day = tempDate.getDay();
+        if (day !== 0 && day !== 6) count++;
+      }
+      return count;
+    } catch (e) { return 0; }
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const cacheBuster = `&t=${new Date().getTime()}`;
+        const ticketDiaRes = await fetch(`${TICKET_DIA_CSV_URL}${cacheBuster}`);
+        const ticketDiaAnteriorRes = await fetch(`${TICKET_DIA_ANTERIOR_CSV_URL}${cacheBuster}`);
+
+        const parseRow = (row: string) => {
+          const cols: string[] = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < row.length; i++) {
+            const char = row[i];
+            if (char === '"') {
+              if (inQuotes && row[i+1] === '"') { current += '"'; i++; }
+              else inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) { cols.push(current.trim()); current = ''; }
+            else current += char;
+          }
+          cols.push(current.trim());
+          return cols;
+        };
+
+        if (ticketDiaRes.ok) {
+          const csvText = await ticketDiaRes.text();
+          const rows = csvText.split(/\r?\n(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if (rows.length >= 2) {
+             const parsed = rows.slice(1).map(row => {
+               const cols = parseRow(row);
+               return { 
+                 colA: cols[0] || '',
+                 date: cols[15] || '',
+                 delay: cols[16] || '0'
+               }
+             }).filter(t => t.colA.trim() !== '');
+             setTicketDiaData(parsed);
+          }
+        }
+        if (ticketDiaAnteriorRes.ok) {
+          const csvText = await ticketDiaAnteriorRes.text();
+          const rows = csvText.split(/\r?\n(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if (rows.length >= 2) {
+             const parsed = rows.slice(1).map(row => ({ colA: parseRow(row)[0] || '' })).filter(t => t.colA.trim() !== '');
+             setTicketDiaAnteriorData(parsed);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const totalEntradas = ticketDiaData.filter(t => !ticketDiaAnteriorData.some(ant => ant.colA === t.colA)).length;
+  const totalSaidas = ticketDiaAnteriorData.filter(ant => !ticketDiaData.some(t => t.colA === ant.colA)).length;
+  const saldo = ticketDiaData.length;
+  const totalDelayed = ticketDiaData.filter(t => getBusinessDaysCount(t.date) > 5).length;
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      className="flex-1 overflow-y-auto custom-scrollbar pr-2 p-2"
+    >
+      <div className="glass-card tech-border rounded-[2rem] p-6 flex flex-col gap-6 relative overflow-hidden bg-transparent shadow-none">
+        <div className="corner-accent corner-tl" />
+        <div className="corner-accent corner-tr" />
+        <div className="corner-accent corner-bl" />
+        <div className="corner-accent corner-br" />
+
+        {/* Master Header */}
+        <div className="flex justify-between items-center border-b border-white/10 pb-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-3xl font-black text-white uppercase tracking-tighter italic drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+              Reporte Diário Operacional
+            </h1>
+            <div className="flex items-center gap-4">
+              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.5em]">Dashboard Logístico • Giro Trade</span>
+              <div className="h-1 w-1 bg-white/20 rounded-full" />
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Data do Relatório</span>
+            <span className="text-3xl font-black text-emerald-400 font-mono tracking-tighter">{new Date().toLocaleDateString('pt-BR')}</span>
+          </div>
+        </div>
+
+        {/* Devolução Section */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+              <RotateCcw className="w-4 h-4 text-emerald-400" />
+            </div>
+            <h2 className="text-lg font-black text-white uppercase tracking-widest italic">Devolução</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: 'Total de Tickets', val: saldo, icon: Ticket, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+              { label: 'Tickets Fechados', val: totalSaidas, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+              { label: 'Tickets Novos', val: totalEntradas, icon: ArrowUpRight, color: 'text-orange-500', bg: 'bg-orange-500/10' },
+              { label: 'Tickets em Atraso', val: totalDelayed, icon: AlertCircle, color: 'text-rose-500', bg: 'bg-rose-500/10' }
+            ].map((kpi, i) => (
+            <div className="bg-white/0 border border-white/10 p-4 rounded-2xl flex items-center gap-4 hover:bg-white/5 transition-all group">
+                <div className={cn("p-3 rounded-xl shrink-0 group-hover:scale-110 transition-transform", kpi.bg, kpi.color)}>
+                  <kpi.icon className="w-6 h-6" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-0.5">{kpi.label}</div>
+                  <div className="text-3xl font-black text-white font-mono leading-none tracking-tighter">{kpi.val}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recebimento Section Header */}
+        <div className="flex items-center gap-2 border-b border-white/5 pb-2 -mb-4">
+          <div className="p-1.5 bg-blue-500/20 rounded-lg">
+            <Truck className="w-4 h-4 text-blue-400" />
+          </div>
+          <h2 className="text-lg font-black text-white uppercase tracking-widest italic">Recebimento</h2>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* Inbound Summary Finalizados */}
+          <div className="xl:col-span-2 flex flex-col gap-8">
+            {/* Aguardando Chegada */}
+            <div className="bg-white/0 border border-white/10 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-white/5 border-b border-white/10 px-6 py-4 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-[12px] font-black text-white uppercase tracking-[0.2em] italic">Inbound - Aguardando Chegada do Veículo</h2>
+                  <span className="bg-emerald-500/20 px-3 py-1 rounded-full text-[11px] font-black text-emerald-400 font-mono">{stats.aguardando.length}</span>
+                </div>
+              </div>
+              <div className="max-h-[250px] overflow-y-auto custom-scrollbar">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] border-b border-white/5 bg-white/5 sticky top-0 z-10 font-mono">
+                      <th className="px-6 py-4">FORNECEDOR</th>
+                      <th className="px-2 py-4 text-center">TIPO</th>
+                      <th className="px-2 py-4 text-center">PALETES</th>
+                      <th className="px-2 py-4 text-center">SETOR</th>
+                      <th className="px-2 py-4 text-center">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.aguardando.length > 0 ? stats.aguardando.map((item: any, idx: number) => (
+                      <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                        <td className="px-6 py-2">
+                          <div className="text-[11px] font-black text-white uppercase truncate max-w-[300px]">{formatSupplierName(item.fornecedor)}</div>
+                          <div className="text-[10px] font-bold text-slate-500 font-mono">OR: {item.ordem}</div>
+                        </td>
+                        <td className="px-2 py-3 text-center text-[11px] font-black text-blue-400 font-mono">{item.tipo.includes('NÃO') ? 'CIF' : 'FOB'}</td>
+                        <td className="px-2 py-3 text-center text-[12px] font-black text-white font-mono">{item.palete}</td>
+                        <td className="px-2 py-3 text-center text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{item.tipoArmazenagem}</td>
+                        <td className="px-2 py-3 text-center">
+                          <span className="text-[10px] font-black text-orange-400 uppercase bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20 italic animate-pulse">
+                            Aguardando
+                          </span>
+                        </td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-[11px] font-black text-slate-600 uppercase tracking-widest italic opacity-50">Sem veículos aguardando</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Cargas Finalizadas */}
+            <div className="bg-white/0 border border-white/10 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-white/5 border-b border-white/10 px-6 py-4 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-[12px] font-black text-white uppercase tracking-[0.2em] italic">Inbound - Cargas Finalizadas</h2>
+                  <span className="bg-emerald-500 px-3 py-1 rounded-full text-[11px] font-black text-white font-mono shadow-[0_0_15px_rgba(16,185,129,0.5)]">{stats.finalizados.length}</span>
+                </div>
+                <div className="flex gap-6 text-[11px] font-black text-slate-400 font-mono">
+                  <span className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-lg border border-white/5">CIF: <span className="text-white">{stats.finalizadosByType.cif}</span></span>
+                  <span className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-lg border border-white/5">FOB: <span className="text-white">{stats.finalizadosByType.fob}</span></span>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] border-b border-white/5 bg-white/5 font-mono">
+                      <th className="px-6 py-4">FORNECEDOR</th>
+                      <th className="px-2 py-4 text-center">TIPO</th>
+                      <th className="px-2 py-4 text-center">STATUS</th>
+                      <th className="px-2 py-4 text-center">PALETES</th>
+                      <th className="px-2 py-4 text-center">SETOR</th>
+                      <th className="px-2 py-4 text-center">SAÍDA</th>
+                      <th className="px-2 py-4 text-center">TEMPO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.finalizados.map((item: any, idx: number) => (
+                      <tr key={idx} className="border-b border-white/5 hover:bg-emerald-500/5 transition-colors group">
+                        <td className="px-6 py-1">
+                          <div className="text-[10px] font-black text-white uppercase group-hover:text-emerald-400 transition-colors truncate max-w-[250px]">{formatSupplierName(item.fornecedor)}</div>
+                          <div className="text-[10px] font-bold text-slate-500 uppercase font-mono">OR: {item.ordem}</div>
+                        </td>
+                        <td className="px-2 py-1 text-center text-[10px] font-black text-blue-400 font-mono">{item.tipo.includes('NÃO') ? 'CIF' : 'FOB'}</td>
+                        <td className="px-2 py-1 text-center">
+                          <span className={cn(
+                            "text-[9px] font-black px-2 py-0.5 rounded-full uppercase font-mono border",
+                            item.status.toLowerCase().includes('noshow') ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                            item.status.toLowerCase().includes('recusado') ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" :
+                            "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                          )}>
+                            {item.status.toLowerCase().includes('noshow') ? 'NO SHOW' : 
+                             item.status.toLowerCase().includes('recusado') ? 'RECUSADO' : 
+                             'FINALIZADO'}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1 text-center text-[10px] font-black text-white font-mono">{item.palete}</td>
+                        <td className="px-2 py-1 text-center text-[9px] font-bold text-slate-400 uppercase tracking-widest">{item.tipoArmazenagem}</td>
+                        <td className="px-2 py-1 text-center text-[10px] font-bold text-slate-300 font-mono">{item.saidaDoca || '--:--'}</td>
+                        <td className="px-2 py-1 text-center text-[10px] font-black text-white font-mono">{item.tempoTotal || '---'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side: Storage Summary */}
+          <div className="flex flex-col">
+            <div className="bg-white/0 border border-white/10 rounded-[1.5rem] px-5 py-4 flex flex-col group hover:bg-white/5 transition-all relative h-full shadow-2xl">
+              <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+                    <Zap className={cn("w-4 h-4 text-emerald-400", mapaLoading && "animate-spin")} />
+                  </div>
+                  <h3 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">
+                    Armazenagem e Posições
+                  </h3>
+                </div>
+              </div>
+
+              <div className="flex-1">
+                <table className="w-full text-left border-separate border-spacing-y-1">
+                  <thead>
+                    <tr className="text-[9px] font-black text-slate-500 uppercase tracking-widest font-mono">
+                      <th className="pb-1">SETOR</th>
+                      <th className="pb-1 text-center">PLT</th>
+                      <th className="pb-1 text-center">VAZ</th>
+                      <th className="pb-1 text-right">SALDO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ALLOWED_SECTORS.map((sector) => {
+                      const pallets = stats.storageSummary[sector] || 0;
+                      const empty = mapaData[sector] || 0;
+                      const total = empty - pallets;
+                      return (
+                        <tr key={sector} className="group/row">
+                          <td className="py-1">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 bg-emerald-500/30 rounded-full group-hover/row:bg-emerald-500 transition-all" />
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter group-hover/row:text-white transition-colors">{sector}</span>
+                            </div>
+                          </td>
+                          <td className="py-1 text-center">
+                            <span className="text-white font-mono text-[11px] font-black">{pallets}</span>
+                          </td>
+                          <td className="py-1 text-center">
+                            <span className="text-blue-400 font-mono text-[11px] font-black">{empty}</span>
+                          </td>
+                          <td className="py-1 text-right">
+                            <span className={cn(
+                              "text-[11px] font-black font-mono px-2 py-0.5 rounded border",
+                              total < 0 ? "text-rose-400 bg-rose-500/10 border-rose-500/20" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+                            )}>
+                              {total}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Stats Section */}
+        <div className="flex flex-col gap-4 pt-2">
+          <div className="flex items-center gap-2 border-b border-white/5 pb-2">
+            <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+              <ClipboardList className="w-4 h-4 text-emerald-400" />
+            </div>
+            <h2 className="text-lg font-black text-white uppercase tracking-widest italic">Produção por Turno</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {shiftNames.map(shift => (
+              <div key={shift} className="bg-white/0 border border-white/10 p-5 rounded-2xl flex flex-col items-center justify-center group hover:bg-white/5 transition-all shadow-2xl">
+                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-2">{shift}</span>
+                <span className="text-4xl font-black text-white font-mono leading-none drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+                  {totalPalletsByShift[shift] || 0}
+                </span>
+                <div className="text-[9px] font-bold text-slate-500 uppercase mt-2 tracking-widest">Paletes Alocados</div>
+              </div>
+            ))}
+            {pendingLots > 0 && (
+              <div key="pending" className="bg-rose-500/0 border border-rose-500/30 p-5 rounded-2xl flex flex-col items-center justify-center shadow-lg animate-pulse">
+                <span className="text-[10px] font-black text-rose-500 uppercase tracking-[0.3em] mb-2">PENDÊNCIAS</span>
+                <span className="text-4xl font-black text-white font-mono leading-none text-rose-500 drop-shadow-[0_0_20px_rgba(244,63,94,0.5)]">
+                  {pendingLoading ? '...' : pendingLots}
+                </span>
+                <div className="text-[9px] font-bold text-rose-500/60 uppercase mt-2 tracking-widest">Aguardando Alocação</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* System Info */}
+        <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center opacity-30 italic">
+          <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em]">Generated by Antigravity OS v4.0.2</span>
+          <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em]">© 2026 Giro Trade Logística LTDA</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+function DevolucaoView() {
+  const [biData, setBiData] = useState<LogisticsData[]>([]);
+  const [ticketDiaData, setTicketDiaData] = useState<{ colA: string, date: string, delay: string }[]>([]);
+  const [ticketDiaAnteriorData, setTicketDiaAnteriorData] = useState<{ colA: string }[]>([]);
+  const [debitoData, setDebitoData] = useState<{ date: string, value: number, carrier: string }[]>([]);
+  const [isFinancialExpanded, setIsFinancialExpanded] = useState(false);
+  const [isDelayedExpanded, setIsDelayedExpanded] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const cacheBuster = `&t=${new Date().getTime()}`;
+        
+        // Fetch Basetime
+        const basetimeRes = await fetch(`${BASETIME_CSV_URL}${cacheBuster}`);
+        const ticketDiaRes = await fetch(`${TICKET_DIA_CSV_URL}${cacheBuster}`);
+        const ticketDiaAnteriorRes = await fetch(`${TICKET_DIA_ANTERIOR_CSV_URL}${cacheBuster}`);
+        const debitoRes = await fetch(`${DEBITO_CSV_URL}${cacheBuster}`);
+
+        const parseRow = (row: string) => {
+          const cols: string[] = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < row.length; i++) {
+            const char = row[i];
+            if (char === '"') {
+              if (inQuotes && row[i + 1] === '"') {
+                current += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              cols.push(current.trim());
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cols.push(current.trim());
+          return cols;
+        };
+
+        // Process Basetime
+        if (basetimeRes.ok) {
+          const csvText = await basetimeRes.text();
+          const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
+          if (rows.length >= 2) {
+            const headers = parseRow(rows[0]).map(h => h.toLowerCase());
+            const dateIdx = headers.findIndex(h => h.includes('data') || h.includes('date'));
+            const statusIdx = headers.findIndex(h => h.includes('status') || h.includes('situação') || h.includes('situacao'));
+            const supplierIdx = headers.findIndex(h => h.includes('fornecedor') || h.includes('cliente') || h.includes('empresa'));
+            const orderIdx = headers.findIndex(h => h.includes('ordem') || h.includes('pedido'));
+            const typeIdx = headers.findIndex(h => h.includes('tipo'));
+
+            const parsed: LogisticsData[] = rows.slice(1).map(row => {
+              const cols = parseRow(row);
+              return {
+                date: cols[dateIdx] || '',
+                status: cols[statusIdx] || '',
+                fornecedor: cols[supplierIdx] || '',
+                ordem: cols[orderIdx] || '',
+                tipo: cols[typeIdx] || '',
+                chegadaDoca: '', saidaDoca: '', doca: '', inicioDescarga: '', fimDescarga: '',
+                inicioConferencia: '', fimConferencia: '', conferente: '', tempoTotal: '',
+                tipoArmazenagem: '', palete: ''
+              };
+            });
+            setBiData(parsed);
+          }
+        }
+
+        // Process Ticket do dia
+        if (ticketDiaRes.ok) {
+          const csvText = await ticketDiaRes.text();
+          
+          // Robust split by newline that ignores newlines inside quotes
+          // We use a more standard CSV splitting approach
+          const rows = csvText.split(/\r?\n(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          
+          if (rows.length >= 2) {
+            const headers = parseRow(rows[0]).map(h => h.toLowerCase().trim());
+            
+            // Force Column P (index 15) for date and Column Q (index 16) for delay as per user request
+            const finalDateIdx = 15;
+            const finalDelayIdx = 16;
+
+            const parsedTickets = rows.slice(1)
+              .map(row => {
+                const cols = parseRow(row);
+                return {
+                  colA: cols[0] || '',
+                  date: (cols[finalDateIdx] || '').trim(),
+                  delay: (cols[finalDelayIdx] || '0').trim()
+                };
+              })
+              .filter(t => t.colA.trim() !== ''); 
+
+            setTicketDiaData(parsedTickets);
+          }
+        }
+
+        // Process Ticket dia anterior
+        if (ticketDiaAnteriorRes.ok) {
+          const csvText = await ticketDiaAnteriorRes.text();
+          const rows = csvText.split(/\r?\n(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+          if (rows.length >= 2) {
+            const parsedAnterior = rows.slice(1)
+              .map(row => {
+                const cols = parseRow(row);
+                return { colA: cols[0] || '' };
+              })
+              .filter(t => t.colA.trim() !== '');
+            setTicketDiaAnteriorData(parsedAnterior);
+          }
+        }
+
+        // Process Debito
+        if (debitoRes.ok) {
+          const csvText = await debitoRes.text();
+          const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
+          if (rows.length >= 2) {
+            const headers = parseRow(rows[0]).map(h => h.toLowerCase().trim());
+            const dateIdx = headers.findIndex(h => h.includes('data') || h.includes('date'));
+            const valueIdx = headers.findIndex(h => h.includes('valor') || h.includes('total') || h.includes('líquido'));
+            const carrierIdx = headers.findIndex(h => h.includes('nome fantasia') || h.includes('cli/for') || h.includes('transportadora'));
+
+            const finalDateIdx = dateIdx !== -1 ? dateIdx : 5;
+            const finalValueIdx = valueIdx !== -1 ? valueIdx : 8;
+            const finalCarrierIdx = carrierIdx !== -1 ? carrierIdx : 3; // Fallback to 3 if not found
+
+            const parsedDebito = rows.slice(1).map(row => {
+              const cols = parseRow(row);
+              const rawValue = cols[finalValueIdx] || '0';
+              const cleanValue = parseFloat(rawValue.replace(/[R$\s.]/g, '').replace(',', '.')) || 0;
+              return {
+                date: cols[finalDateIdx] || '',
+                value: cleanValue,
+                carrier: cols[finalCarrierIdx] || 'N/A'
+              };
+            }).filter(d => d.date !== '');
+            setDebitoData(parsedDebito);
+          }
+        }
+
+      } catch (err) {
+        console.error('Erro BI Devolução:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const dashboardData = useMemo(() => {
+    const recusados = biData.filter(item => item.status.toLowerCase().includes('recusado'));
+    
+    const dailyEntradas: Record<string, { qtd: number, withinTerm: number, delayed: number }> = {};
+    const dailySaidas: Record<string, number> = {};
+    
+    const monthNamesShort = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+    const getBusinessDaysCount = (dateStr: string) => {
+      try {
+        let d: Date;
+        const pureDate = dateStr.split(/\s+/)[0];
+        if (pureDate.includes('/')) {
+          const parts = pureDate.split('/');
+          d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        } else {
+          d = new Date(pureDate);
+        }
+        
+        if (isNaN(d.getTime())) return 0;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const current = new Date(d);
+        current.setHours(0, 0, 0, 0);
+        
+        let count = 0;
+        const tempDate = new Date(current);
+        while (tempDate < today) {
+          tempDate.setDate(tempDate.getDate() + 1);
+          const day = tempDate.getDay();
+          if (day !== 0 && day !== 6) {
+            count++;
+          }
+        }
+        return count;
+      } catch (e) {
+        return 0;
+      }
+    };
+
+    const delayedTickets: any[] = [];
+    ticketDiaData.forEach(t => {
+      // Extract date part from "DD/MM/YYYY HH:MM:SS" or "YYYY-MM-DD"
+      let datePart = t.date.split(/\s+/)[0];
+      if (!datePart) return;
+
+      // Normalize date format to DD/MM/YYYY if it's YYYY-MM-DD
+      if (datePart.includes('-') && datePart.split('-')[0].length === 4) {
+        const [y, m, d] = datePart.split('-');
+        datePart = `${d}/${m}/${y}`;
+      }
+
+      const dateKey = datePart;
+      if (!dailyEntradas[dateKey]) {
+        dailyEntradas[dateKey] = { qtd: 0, withinTerm: 0, delayed: 0 };
+      }
+      dailyEntradas[dateKey].qtd += 1;
+      
+      // Calculate delay in business days (dias úteis)
+      const businessDaysDelay = getBusinessDaysCount(t.date);
+      
+      // Delay logic: if business days delay > 5, it's delayed (atrasado)
+      if (businessDaysDelay <= 5) {
+        dailyEntradas[dateKey].withinTerm += 1;
+      } else {
+        dailyEntradas[dateKey].delayed += 1;
+        delayedTickets.push({ 
+          ...t, 
+          businessDaysDelay,
+          formattedDate: datePart
+        });
+      }
+    });
+
+    recusados.forEach(item => {
+      const datePart = item.date.split(' ')[0];
+      if (!datePart) return;
+      dailySaidas[datePart] = (dailySaidas[datePart] || 0) + 1;
+    });
+
+    const allDates = Array.from(new Set([...Object.keys(dailyEntradas), ...Object.keys(dailySaidas)]))
+      .sort((a, b) => {
+        const parseDate = (d: string) => {
+          const parts = d.split('/');
+          if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+          return 0;
+        };
+        return parseDate(a) - parseDate(b);
+      });
+
+    const chartData = allDates.slice(-15).map(date => {
+      const parts = date.split('/');
+      const formattedDate = parts.length === 3 ? `${parts[0]}/${monthNamesShort[parseInt(parts[1]) - 1]}` : date;
+      
+      return {
+        date: formattedDate,
+        withinTerm: dailyEntradas[date]?.withinTerm || 0,
+        delayed: dailyEntradas[date]?.delayed || 0,
+        saidas: dailySaidas[date] || 0,
+        total: (dailyEntradas[date]?.qtd || 0)
+      };
+    });
+
+    const totalEntradas = ticketDiaData.filter(t => 
+      !ticketDiaAnteriorData.some(ant => ant.colA === t.colA)
+    ).length;
+
+    const totalSaidas = ticketDiaAnteriorData.filter(ant => 
+      !ticketDiaData.some(t => t.colA === ant.colA)
+    ).length;
+
+    const saldo = ticketDiaData.length;
+    const saldoYesterday = ticketDiaAnteriorData.length;
+
+    const monthlyStats: Record<string, { 
+      month: string, 
+      total: number, 
+      count: number, 
+      index: number,
+      topCarrier?: { name: string, value: number }
+    }> = {};
+    const monthNames = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+    const carrierExpenses: Record<string, Record<string, number>> = {};
+
+    debitoData.forEach(item => {
+      let monthIdx = -1;
+      if (item.date.includes('/')) monthIdx = parseInt(item.date.split('/')[1]) - 1;
+      else if (item.date.includes('-')) monthIdx = parseInt(item.date.split('-')[1]) - 1;
+
+      if (monthIdx >= 0 && monthIdx < 12) {
+        const monthName = monthNames[monthIdx];
+        if (!monthlyStats[monthName]) {
+          monthlyStats[monthName] = { month: monthName, total: 0, count: 0, index: monthIdx };
+          carrierExpenses[monthName] = {};
+        }
+        monthlyStats[monthName].count += 1;
+        monthlyStats[monthName].total += item.value;
+        
+        carrierExpenses[monthName][item.carrier] = (carrierExpenses[monthName][item.carrier] || 0) + item.value;
+      }
+    });
+
+    // Find top carrier for each month
+    Object.keys(monthlyStats).forEach(monthName => {
+      const carriers = carrierExpenses[monthName];
+      let topCarrierName = 'N/A';
+      let topCarrierValue = 0;
+      
+      Object.entries(carriers).forEach(([name, value]) => {
+        if (value > topCarrierValue) {
+          topCarrierValue = value;
+          topCarrierName = name;
+        }
+      });
+      
+      monthlyStats[monthName].topCarrier = { name: topCarrierName, value: topCarrierValue };
+    });
+
+    const detailedList: { date: string, status: string, total: number, rawDate: string }[] = [];
+    allDates.forEach(date => {
+      const parts = date.split('/');
+      const monthNamesShort = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      const formattedDate = parts.length === 3 ? `${parts[0]}/${monthNamesShort[parseInt(parts[1]) - 1]}` : date;
+      
+      if (dailyEntradas[date]?.withinTerm > 0) {
+        detailedList.push({
+          date: formattedDate,
+          status: 'DENTRO DO PRAZO',
+          total: dailyEntradas[date].withinTerm,
+          rawDate: date
+        });
+      }
+      if (dailyEntradas[date]?.delayed > 0) {
+        detailedList.push({
+          date: formattedDate,
+          status: 'ATRASADO',
+          total: dailyEntradas[date].delayed,
+          rawDate: date
+        });
+      }
+    });
+
+    return {
+      chartData,
+      monthlyTable: Object.values(monthlyStats).sort((a, b) => a.index - b.index),
+      totalEntradas,
+      totalSaidas,
+      saldo,
+      saldoYesterday,
+      totalDelayed: Object.values(dailyEntradas).reduce((acc, curr) => acc + curr.delayed, 0),
+      delayedTickets: delayedTickets.sort((a, b) => b.businessDaysDelay - a.businessDaysDelay),
+      eficiencia: totalEntradas > 0 ? ((totalSaidas / totalEntradas) * 100).toFixed(1) : '0.0',
+      detalhamento: detailedList.sort((a, b) => {
+        const parseDate = (d: string) => {
+          const parts = d.split('/');
+          if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])).getTime();
+          return 0;
+        };
+        return parseDate(b.rawDate) - parseDate(a.rawDate);
+      })
+    };
+  }, [biData, ticketDiaData, debitoData]);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <RotateCcw className="w-12 h-12 text-blue-500 animate-spin" />
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Carregando Painel de Monitoramento...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex-1 flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1"
+    >
+      {/* Header Section */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3">
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <Monitor className="w-6 h-6 text-white" />
+              </div>
+              Monitoramento devolução
+            </h2>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">REAL-TIME TICKET QUEUE ANALYTICS • {new Date().toLocaleDateString('pt-BR')}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">SYSTEM STATUS</span>
+              <div className="flex items-center gap-1.5 bg-emerald-500/10 px-2 py-1 rounded-md">
+                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="text-[9px] font-black text-emerald-500 uppercase">OPERATIONAL</span>
+              </div>
+            </div>
+            <div className="h-8 w-px bg-white/10" />
+            <div className="flex flex-col items-end">
+              <span className="text-[9px] font-bold text-slate-500 uppercase">LAST UPDATE</span>
+              <span className="text-[11px] font-black text-white font-mono">{new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Empty space for future use */}
-      <div className="flex-1 min-h-[200px]" />
+      {/* Animated Truck Animation Area - Ultra Visibility */}
+      <div className="w-full h-24 relative z-[100] overflow-hidden mb-2 pointer-events-none">
+        <motion.div
+          animate={{ x: ["-20vw", "120vw"] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+          className="absolute left-0 top-0 h-full flex items-center"
+        >
+          <div className="relative flex items-center">
+            {/* Pulsing glow for maximum visibility */}
+            <motion.div 
+              animate={{ opacity: [0.4, 0.8, 0.4] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="absolute inset-0 bg-blue-400/30 blur-3xl rounded-full scale-[2]" 
+            />
+            
+            <div className="relative">
+              <Truck className="w-16 h-16 text-blue-300 drop-shadow-[0_0_20px_rgba(59,130,246,1)]" />
+              {/* Ground glow */}
+              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-14 h-3 bg-blue-400/50 blur-lg rounded-full" />
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* KPI Row (Full Width) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-4">
+        {[
+          { label: 'Total de Tickets', val: dashboardData.saldo, icon: Ticket, color: 'bg-blue-500/10 text-blue-500', trend: '+12%', trendColor: 'text-emerald-500' },
+          { label: 'tickets fechados', val: dashboardData.totalSaidas, icon: CheckCircle2, color: 'bg-emerald-500/10 text-emerald-500', trend: '+5%', trendColor: 'text-emerald-500' },
+          { label: 'tickets novos', val: dashboardData.totalEntradas, icon: ArrowUpRight, color: 'bg-orange-500/10 text-orange-500', trend: '+8%', trendColor: 'text-emerald-500' },
+          { label: 'Tickets em Atraso', val: dashboardData.totalDelayed, icon: AlertCircle, color: 'bg-rose-500/10 text-rose-500', trend: '+2%', trendColor: 'text-rose-500' }
+        ].map((kpi, i) => {
+          const isAtraso = kpi.label === 'Tickets em Atraso';
+          return (
+            <div 
+              key={i} 
+              onClick={() => isAtraso && setIsDelayedExpanded(!isDelayedExpanded)}
+              className={cn(
+                "glass-card tech-border p-8 rounded-3xl relative group min-h-[180px] flex flex-col justify-center transition-all duration-300",
+                !isDelayedExpanded && "overflow-hidden",
+                isAtraso && "cursor-pointer hover:bg-white/5 active:scale-95",
+                isAtraso && isDelayedExpanded && "z-[200] shadow-[0_0_50px_rgba(244,63,94,0.3)] border-rose-500/50"
+              )}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className={cn("p-3 rounded-xl", kpi.color)}>
+                  <kpi.icon className="w-6 h-6" />
+                </div>
+                <div className={cn("flex items-center gap-1.5 text-[11px] font-black", kpi.trendColor)}>
+                  <ArrowUpRight className="w-3 h-3" />
+                  {kpi.trend}
+                </div>
+              </div>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.2em]">{kpi.label}</span>
+              <div className="text-5xl font-black mt-2 text-white font-mono tracking-tighter flex items-center gap-3">
+                {kpi.val}
+                {isAtraso && (
+                  <motion.div
+                    animate={{ rotate: isDelayedExpanded ? 180 : 0 }}
+                    className="text-slate-500"
+                  >
+                    <ChevronDown className="w-5 h-5" />
+                  </motion.div>
+                )}
+              </div>
+
+              {isAtraso && (
+                <AnimatePresence>
+                  {isDelayedExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute top-[105%] left-0 right-0 bg-[#0f172a] border border-white/10 rounded-3xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[300] max-h-[450px] overflow-y-auto custom-scrollbar tech-border"
+                    >
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-3 mb-1">
+                          <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Lista de Tickets em Atraso</span>
+                          <span className="text-[9px] font-bold text-slate-500 uppercase">Total: {dashboardData.delayedTickets.length}</span>
+                        </div>
+                        
+                        {dashboardData.delayedTickets.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {dashboardData.delayedTickets.map((ticket: any, tIdx: number) => (
+                              <div key={tIdx} className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col gap-2 hover:bg-white/10 transition-colors">
+                                <div className="flex justify-between items-center">
+                                  <div className="flex flex-col">
+                                    <span className="text-[12px] font-black text-white font-mono">{ticket.colA}</span>
+                                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{ticket.delay}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xl font-black text-rose-500 font-mono leading-none">
+                                      {ticket.businessDaysDelay}d
+                                    </div>
+                                    <div className="text-[8px] font-black text-slate-500 uppercase mt-0.5">atraso</div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                                  <Clock className="w-3 h-3 text-slate-500" />
+                                  <span className="text-[10px] text-slate-400 font-mono">Entrada: {ticket.formattedDate}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="py-8 text-center text-[10px] font-bold text-slate-600 uppercase italic opacity-50">
+                            Nenhum ticket em atraso encontrado
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Left Side: Chart + Financial */}
+        <div className="xl:col-span-2 flex flex-col gap-6">
+          {/* Chart Area */}
+          <div className="glass-card tech-border rounded-3xl p-6 flex flex-col gap-6">
+            <div className="flex justify-between items-center">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">Volume de Tickets por Data</h3>
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Distribuição temporal e status de entrega</span>
+              </div>
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase">Dentro do Prazo</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 bg-rose-500 rounded-full" />
+                  <span className="text-[9px] font-black text-slate-400 uppercase">Em Atraso</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="h-[520px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dashboardData.chartData} barGap={16}>
+                  <CartesianGrid strokeDasharray="2 2" stroke="#ffffff10" vertical={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }}
+                    dy={15}
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }}
+                    dx={-10}
+                  />
+                  <Tooltip 
+                    cursor={{ fill: '#ffffff05' }}
+                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '16px', padding: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                    itemStyle={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase' }}
+                  />
+                  <Bar dataKey="withinTerm" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={32} />
+                  <Bar dataKey="delayed" fill="#f43f5e" radius={[6, 6, 0, 0]} barSize={32} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Financial Impact (Moved and Horizontal) */}
+          <div className="glass-card tech-border rounded-3xl p-6 flex flex-col gap-6">
+            <div className="flex justify-between items-end">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">Débitos por Mês</h3>
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Impacto Financeiro Estimado</span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Total Geral</span>
+                <div className="text-2xl font-black text-emerald-400 font-mono tracking-tighter">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                    dashboardData.monthlyTable.reduce((acc, curr) => acc + curr.total, 0)
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {dashboardData.monthlyTable.map((m, i) => (
+                <div 
+                  key={i} 
+                  className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col gap-3 group/month hover:bg-white/10 transition-colors cursor-pointer"
+                  onClick={() => setIsFinancialExpanded(!isFinancialExpanded)}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-white uppercase tracking-wider group-hover/month:text-emerald-400 transition-colors">{m.month}/26</span>
+                    <span className="text-[11px] font-black text-emerald-400 font-mono">
+                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.total)}
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(m.count / Math.max(...dashboardData.monthlyTable.map(x => x.count))) * 100}%` }}
+                      className="h-full bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]"
+                    />
+                  </div>
+
+                  <AnimatePresence>
+                    {isFinancialExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="bg-slate-900/60 rounded-xl p-3 mt-1 border border-white/5 flex flex-col gap-1.5">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-500 uppercase">Top Transportadora</span>
+                            <span className="text-[9px] font-black text-white uppercase truncate">{m.topCarrier?.name}</span>
+                          </div>
+                          <div className="flex justify-between items-center pt-1 border-t border-white/5">
+                            <span className="text-[8px] font-black text-slate-500 uppercase">Gasto</span>
+                            <span className="text-[9px] font-black text-emerald-400 font-mono">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(m.topCarrier?.value || 0)}
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar: Detalhamento */}
+        <div className="flex flex-col gap-6">
+          {/* Detalhamento Section */}
+          <div className="glass-card tech-border rounded-3xl p-8 flex flex-col gap-8 h-full">
+            <div className="flex items-center gap-4 mb-2">
+              <div className="p-3 bg-white/5 rounded-xl border border-white/10">
+                <Clock className="w-6 h-6 text-slate-400" />
+              </div>
+              <h3 className="text-xl font-black text-white uppercase tracking-tight">Detalhamento</h3>
+            </div>
+            
+            <div className="grid grid-cols-3 px-4 mb-2">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Data</span>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest text-center">Status</span>
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest text-right">Total</span>
+            </div>
+            
+            <div className="max-h-[680px] overflow-y-auto custom-scrollbar pr-2 flex flex-col gap-4">
+              {dashboardData.detalhamento.map((item, idx) => (
+                <div key={idx} className="bg-slate-900/40 border border-white/5 rounded-2xl p-5 flex items-center justify-between hover:bg-slate-800/40 transition-colors group">
+                  <div className="w-1/3 text-[14px] font-black text-slate-300 font-mono group-hover:text-white transition-colors">{item.date}</div>
+                  <div className="w-1/3 flex justify-center">
+                    <div className={cn(
+                      "flex items-center gap-2 px-5 py-1.5 rounded-full text-[11px] font-black uppercase tracking-tight",
+                      item.status === 'ATRASADO' ? 'text-rose-500 bg-rose-500/5' : 'text-emerald-500 bg-emerald-500/5'
+                    )}>
+                      {item.status === 'ATRASADO' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                      {item.status}
+                    </div>
+                  </div>
+                  <div className="w-1/3 text-right text-2xl font-black text-white font-mono tracking-tighter">{item.total}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Total Geral Footer for Detalhamento */}
+            <div className="mt-2 pt-6 border-t border-white/10 flex flex-col gap-4">
+              <div className="flex justify-between items-end">
+                <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Total Geral</span>
+                <span className="text-3xl font-black text-white font-mono tracking-tighter">
+                  {dashboardData.detalhamento.reduce((acc, curr) => acc + curr.total, 0)}
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: '100%' }}
+                  className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 }
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('giro_auth') === 'true';
+  });
   const [data, setData] = useState<LogisticsData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mapaLoading, setMapaLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [view, setView] = useState<'dashboard' | 'reports'>('dashboard');
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const today = new Date();
+    return `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+  });
+  const [view, setView] = useState<'dashboard' | 'reports' | 'bi' | 'devolucao' | 'analytics' | 'daily_report'>('dashboard');
   const [tvMode, setTvMode] = useState(false);
+  const [mapaData, setMapaData] = useState<Record<string, number>>({});
+  const [operadoresData, setOperadoresData] = useState<Record<string, Record<string, number>>>({});
+  const [operadoresLoading, setOperadoresLoading] = useState(false);
+  const [pendingLots, setPendingLots] = useState<number>(0);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const today = new Date();
+  const todayFormatted = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+
+  const handlePrevDay = () => {
+    const [d, m] = selectedDate.split('/').map(Number);
+    const date = new Date(2026, m - 1, d);
+    date.setDate(date.getDate() - 1);
+    const newDate = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    setSelectedDate(newDate);
+    fetchData(newDate);
+  };
+
+  const handleNextDay = () => {
+    const [d, m] = selectedDate.split('/').map(Number);
+    const date = new Date(2026, m - 1, d);
+    date.setDate(date.getDate() + 1);
+    const newDate = `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    setSelectedDate(newDate);
+    fetchData(newDate);
+  };
 
   useEffect(() => {
     let interval: any;
     if (tvMode) {
       interval = setInterval(() => {
-        setView(prev => prev === 'dashboard' ? 'reports' : 'dashboard');
+        setView(prev => {
+          if (prev === 'dashboard') return 'reports';
+          if (prev === 'reports') return 'bi';
+          if (prev === 'bi') return 'devolucao';
+          return 'dashboard';
+        });
       }, 15000); // Cycle every 15 seconds for TV mode
     }
     return () => clearInterval(interval);
@@ -500,7 +2272,300 @@ export default function App() {
     return dateStr;
   };
 
-  const fetchData = async () => {
+  const fetchMapaData = async () => {
+    try {
+      setMapaLoading(true);
+      const cacheBuster = `&t=${new Date().getTime()}`;
+      let response = await fetch(`${MAPA_CSV_URL}${cacheBuster}`);
+      
+      if (!response.ok) {
+        const fallbackUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=mapa`;
+        response = await fetch(`${fallbackUrl}${cacheBuster}`);
+      }
+
+      if (!response.ok) throw new Error('Falha ao buscar mapa de posições');
+      
+      const csvText = await response.text();
+      const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
+      if (rows.length < 2) return;
+
+      const parseRow = (row: string) => {
+        const cols: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < row.length; i++) {
+          const char = row[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            cols.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        cols.push(current.trim().replace(/^"|"$/g, ''));
+        return cols;
+      };
+
+      const headers = parseRow(rows[0]).map(h => h.toLowerCase());
+      
+      // Column D is Sector (index 3), Column L is Empty Position (index 11)
+      // We'll use findCol to be safe
+      const findCol = (names: string[], defaultIdx: number) => {
+        // Try exact match first
+        let idx = headers.findIndex(h => names.some(n => h === n));
+        if (idx !== -1) return idx;
+        
+        // Try partial match
+        idx = headers.findIndex(h => names.some(n => h.includes(n)));
+        return idx !== -1 ? idx : defaultIdx;
+      };
+
+      const colSetor = findCol(['setor', 'área', 'area'], 3);
+      const colVazio = findCol(['vazio', 'vazia'], 11);
+
+      const counts: Record<string, number> = {};
+      
+      rows.slice(1).forEach(row => {
+        const cols = parseRow(row);
+        const setor = (cols[colSetor] || 'SEM SETOR').toUpperCase().trim();
+        const status = (cols[colVazio] || '').toUpperCase().trim();
+        
+        // Count if it's empty. Common values: "VAZIO", "SIM", "EMPTY", or non-empty if it's a count
+        if (status === 'VAZIO' || status === 'SIM' || status === 'V' || status === 'EMPTY') {
+          counts[setor] = (counts[setor] || 0) + 1;
+        }
+      });
+
+      setMapaData(counts);
+    } catch (error) {
+      console.error('Erro ao buscar mapa:', error);
+    } finally {
+      setMapaLoading(false);
+    }
+  };
+
+  const fetchMapaPendenteData = async () => {
+    try {
+      setPendingLoading(true);
+      const cacheBuster = `&t=${new Date().getTime()}`;
+      
+      // Fetch Pendente
+      let resPendente = await fetch(`${MAPA_PENDENTE_CSV_URL}${cacheBuster}`);
+      if (!resPendente.ok) {
+        const fallbackUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=mapa%20pendente`;
+        resPendente = await fetch(`${fallbackUrl}${cacheBuster}`);
+      }
+      if (!resPendente.ok) throw new Error('Falha ao buscar mapa pendente');
+      const csvPendente = await resPendente.text();
+      
+      // Fetch Concluido (all of it, to filter out any lot ever allocated)
+      let resConcluido = await fetch(`${MAPA_CONCLUIDO_CSV_URL}${cacheBuster}`);
+      if (!resConcluido.ok) {
+        const fallbackUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=mapa%20concluido`;
+        resConcluido = await fetch(`${fallbackUrl}${cacheBuster}`);
+      }
+      if (!resConcluido.ok) throw new Error('Falha ao buscar mapa concluído');
+      const csvConcluido = await resConcluido.text();
+
+      const parseRow = (row: string) => {
+        const cols: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < row.length; i++) {
+          const char = row[i];
+          if (char === '"') inQuotes = !inQuotes;
+          else if (char === ',' && !inQuotes) {
+            cols.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else current += char;
+        }
+        cols.push(current.trim().replace(/^"|"$/g, ''));
+        return cols;
+      };
+
+      const rowsPendente = csvPendente.split(/\r?\n/).filter(row => row.trim() !== '');
+      const rowsConcluido = csvConcluido.split(/\r?\n/).filter(row => row.trim() !== '');
+
+      if (rowsPendente.length < 2) {
+        setPendingLots(0);
+        return;
+      }
+
+      const headersPendente = parseRow(rowsPendente[0]).map(h => h.toLowerCase());
+      const headersConcluido = parseRow(rowsConcluido[0]).map(h => h.toLowerCase());
+
+      const loteIdxPendente = headersPendente.findIndex(h => h.includes('lote') && !h.includes('indústria') && !h.includes('industria'));
+      const loteIdxConcluido = headersConcluido.findIndex(h => h.includes('lote') && !h.includes('indústria') && !h.includes('industria'));
+
+      // If we can't find lote column in either, we just count rows as before
+      if (loteIdxPendente === -1 || loteIdxConcluido === -1) {
+        setPendingLots(rowsPendente.length - 1);
+        return;
+      }
+
+      const concluidoLots = new Set(
+        rowsConcluido.slice(1).map(row => parseRow(row)[loteIdxConcluido]?.trim()).filter(l => l && l !== '' && l !== '0')
+      );
+
+      const pendingLotsFiltered = rowsPendente.slice(1).filter(row => {
+        const lote = parseRow(row)[loteIdxPendente]?.trim();
+        return lote && lote !== '' && lote !== '0' && !concluidoLots.has(lote);
+      });
+
+      setPendingLots(pendingLotsFiltered.length);
+    } catch (error) {
+      console.error('Erro ao buscar mapa pendente:', error);
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+
+  const fetchOperadoresData = async (targetDate?: string) => {
+    try {
+      setOperadoresLoading(true);
+      const cacheBuster = `&t=${new Date().getTime()}`;
+      
+      // Try with accent first
+      let response = await fetch(`${MAPA_CONCLUIDO_CSV_URL}${cacheBuster}`);
+      
+      // Fallback to without accent if failed
+      if (!response.ok) {
+        const fallbackUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=mapa%20concluido`;
+        response = await fetch(`${fallbackUrl}${cacheBuster}`);
+      }
+
+      if (!response.ok) throw new Error('Falha ao buscar dados de operadores. Verifique o nome da aba na planilha.');
+      
+      const csvText = await response.text();
+      if (csvText.includes('<!DOCTYPE html>') || csvText.includes('<html')) {
+        throw new Error('A resposta da planilha não é um CSV válido. Verifique se a aba "mapa concluído" existe e está compartilhada.');
+      }
+      const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
+      if (rows.length < 2) {
+        console.warn('Nenhum dado encontrado na aba "mapa concluído" além do cabeçalho.');
+        return;
+      }
+
+      const parseRow = (row: string) => {
+        const cols: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < row.length; i++) {
+          const char = row[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            cols.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        cols.push(current.trim().replace(/^"|"$/g, ''));
+        return cols;
+      };
+
+      const headers = parseRow(rows[0]).map(h => h.toLowerCase());
+      console.log('Headers Mapa Concluido:', headers);
+      
+      const filterDate = targetDate || todayFormatted;
+      console.log('Filtrando por data:', filterDate);
+      
+      // Coluna AD is index 29 (0-indexed), AC is 28, C is 2
+      // Let's try to find them by name first for better robustness, fallback to indices
+      let opIdx = headers.findIndex(h => h.includes('usuário de alocação') || h.includes('usuario de alocacao') || h.includes('operador'));
+      if (opIdx === -1) opIdx = 29;
+
+      let dateIdx = headers.findIndex(h => h.includes('data de alocação') || h.includes('data de alocacao'));
+      if (dateIdx === -1) dateIdx = 28;
+
+      let loteIdx = headers.findIndex(h => h.includes('lote') && !h.includes('indústria') && !h.includes('industria'));
+      if (loteIdx === -1) loteIdx = 2; // Column C
+      
+      let turnoIdx = headers.findIndex(h => h.includes('turno'));
+      
+      let tipoRecIdx = headers.findIndex(h => h.includes('descrição do tipo de recebimento') || h.includes('descricao do tipo de recebimento'));
+      if (tipoRecIdx === -1) tipoRecIdx = 10; // Column K
+      
+      console.log(`Indices: Op=${opIdx}, Date=${dateIdx}, Lote=${loteIdx}, Turno=${turnoIdx}, TipoRec=${tipoRecIdx}`);
+
+      const shifts: Record<string, Record<string, number>> = {
+        'TURNO 1': {},
+        'TURNO 2': {}
+      };
+
+      // Operator to Shift Mapping based on user image
+      const operatorShiftMap: Record<string, string> = {
+        'SANTOS.JOSE': 'TURNO 1',
+        'FLAVIO.MONTEIRO': 'TURNO 1',
+        'MAURICIO.SANTOS': 'TURNO 2',
+        'CICERO.SILVA': 'TURNO 2',
+        'HUGO.CONCEICAO': 'TURNO 2',
+        'ADENILSON': 'TURNO 2'
+      };
+
+      let count = 0;
+      rows.slice(1).forEach((row, rowIndex) => {
+        const cols = parseRow(row);
+        
+        // Filter by column K (index 10) - Descrição do Tipo de Recebimento
+        const tipoRecebimento = cols[tipoRecIdx]?.trim().toUpperCase();
+        if (tipoRecebimento !== 'RECEBIMENTO GERAL') return;
+
+        // Filter by date if date column exists
+        if (dateIdx !== -1 && cols[dateIdx]) {
+          const rawDate = cols[dateIdx];
+          const rowDate = formatDate(rawDate);
+          
+          // If it's ######## we assume it's today (common display issue in sheets export)
+          // But only if we are filtering for today
+          const isToday = rawDate.includes('##') && filterDate === todayFormatted;
+          const matchesDate = rowDate === filterDate || isToday;
+          
+          if (!matchesDate) return;
+        }
+
+        const op = cols[opIdx]?.trim().toUpperCase();
+        if (!op || op === '-' || op === '0' || op === '') return;
+
+        let turno = '';
+        
+        // Prioritize manual mapping first to override spreadsheet errors
+        const mappedShift = Object.entries(operatorShiftMap).find(([name]) => op.includes(name))?.[1];
+        if (mappedShift) {
+          turno = mappedShift;
+        } else if (turnoIdx !== -1) {
+          const turnoRaw = cols[turnoIdx]?.trim() || '';
+          if (turnoRaw === '1') turno = 'TURNO 1';
+          else if (turnoRaw === '2') turno = 'TURNO 2';
+          else if (turnoRaw) turno = turnoRaw.toUpperCase();
+        }
+
+        if (!turno) turno = 'TURNO 1'; // Default to Turno 1 if unknown but has operator
+        
+        // Count each line as 1 unit (lote) as requested
+        const rawLote = cols[loteIdx]?.trim();
+        // Even if lote is empty, if there's an operator, we might want to count the action
+        // but the user said "lote alocados", so we check if there's something there
+        if (!rawLote || rawLote === '0' || rawLote === '-') return;
+        
+        if (!shifts[turno]) shifts[turno] = {};
+        shifts[turno][op] = (shifts[turno][op] || 0) + 1;
+        count++;
+      });
+
+      console.log(`Total de registros processados: ${count}`);
+      setOperadoresData(shifts);
+    } catch (error) {
+      console.error('Erro ao buscar dados de operadores:', error);
+    } finally {
+      setOperadoresLoading(false);
+    }
+  };
+
+  const fetchData = async (targetDate?: string) => {
     try {
       setLoading(true);
       const cacheBuster = `&t=${new Date().getTime()}`;
@@ -511,9 +2576,7 @@ export default function App() {
       const rows = csvText.split(/\r?\n/).filter(row => row.trim() !== '');
       if (rows.length < 2) return;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayFormatted = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+      const filterDate = targetDate || selectedDate || todayFormatted;
       
       // Helper to parse a CSV row correctly handling quotes
       const parseRow = (row: string) => {
@@ -592,26 +2655,6 @@ export default function App() {
       });
 
       setData(parsedData);
-      
-      // Update selected date
-      const dates = Array.from(new Set(parsedData.map(d => d.date))).filter((d: string) => d && d !== '---' && d.includes('/'));
-      
-      // Force selectedDate to today if it's available, otherwise pick the most recent available date
-      if (dates.includes(todayFormatted)) {
-        setSelectedDate(todayFormatted);
-      } else if (dates.length > 0) {
-        // Sort dates to find the most recent one
-        const sortedDates = [...dates].sort((a: string, b: string) => {
-          const [da, ma] = a.split('/').map(Number);
-          const [db, mb] = b.split('/').map(Number);
-          if (ma !== mb) return ma - mb;
-          return da - db;
-        });
-        setSelectedDate(sortedDates[sortedDates.length - 1]);
-      } else {
-        setSelectedDate(todayFormatted);
-      }
-      
       setLastUpdate(new Date());
     } catch (err) {
       console.error(err);
@@ -621,49 +2664,30 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
+    fetchData(selectedDate);
+    fetchMapaData();
+    fetchMapaPendenteData();
+    fetchOperadoresData(selectedDate);
+    
+    const interval = setInterval(() => {
+      fetchData(selectedDate);
+      fetchMapaData();
+      fetchMapaPendenteData();
+      fetchOperadoresData(selectedDate);
+    }, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedDate]);
 
-  const uniqueDates = useMemo(() => {
-    const rawDates = data.map(d => d.date);
-    return Array.from(new Set(rawDates))
-      .filter((d: string) => d && d !== '---' && d.includes('/'))
-      .sort((a: string, b: string) => {
-        const [da, ma] = a.split('/').map(Number);
-        const [db, mb] = b.split('/').map(Number);
-        if (ma !== mb) return ma - mb;
-        return da - db;
-      });
-  }, [data]);
+  useEffect(() => {
+    if (selectedDate) {
+      fetchOperadoresData(selectedDate);
+    }
+  }, [selectedDate]);
 
   const filteredData = useMemo(() => {
     return data.filter(d => d.date === selectedDate);
   }, [data, selectedDate]);
 
-  const handlePrevDate = () => {
-    const currentIndex = uniqueDates.indexOf(selectedDate);
-    if (currentIndex > 0) {
-      setSelectedDate(uniqueDates[currentIndex - 1]);
-    }
-  };
-
-  const handleNextDate = () => {
-    const currentIndex = uniqueDates.indexOf(selectedDate);
-    if (currentIndex < uniqueDates.length - 1) {
-      setSelectedDate(uniqueDates[currentIndex + 1]);
-    }
-  };
-
-  const formatSupplierName = (name: string) => {
-    if (!name) return '';
-    // Remove quotes if any
-    const cleanName = name.replace(/^"|"$/g, '').trim();
-    const words = cleanName.split(/\s+/);
-    // Return more words to avoid excessive truncation
-    return words.slice(0, 4).join(' ');
-  };
 
   const formatTempoMedio = (tempo: string) => {
     if (!tempo || !tempo.includes(':')) return '0H 00M';
@@ -765,138 +2789,247 @@ export default function App() {
     };
   }, [filteredData]);
 
+  if (!isAuthenticated) {
+    return <Login onLogin={() => setIsAuthenticated(true)} />;
+  }
+
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 font-sans p-4 flex flex-col gap-4 relative overflow-hidden">
+    <div className="h-screen bg-[#020617] text-slate-200 font-sans p-4 flex gap-6 relative overflow-hidden">
       {/* Background Grid Decoration */}
       <div className="absolute inset-0 pointer-events-none opacity-[0.03]" 
            style={{ backgroundImage: 'radial-gradient(#10b981 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
       
-      {/* Header */}
-      <header className="flex items-center justify-between relative z-10">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={handlePrevDate}
-              disabled={uniqueDates.indexOf(selectedDate) <= 0}
-              className="p-1 hover:bg-emerald-500/20 rounded transition-all disabled:opacity-30 active:scale-90"
-            >
-              <ChevronLeft className="w-4 h-4 text-emerald-500" />
-            </button>
-            <div className="glass-card border-emerald-500/30 px-3 py-1 rounded-md flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.2em] text-emerald-400">
-              <Clock className="w-4 h-4 animate-pulse" />
-              {(() => {
-                const today = new Date();
-                const todayFormatted = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}`;
-                return selectedDate === todayFormatted ? `HOJE: ${selectedDate}` : `DATA: ${selectedDate || '---'}`;
-              })()}
-            </div>
-            <button 
-              onClick={handleNextDate}
-              disabled={uniqueDates.indexOf(selectedDate) >= uniqueDates.length - 1}
-              className="p-1 hover:bg-emerald-500/20 rounded transition-all disabled:opacity-30 active:scale-90"
-            >
-              <ChevronRight className="w-4 h-4 text-emerald-500" />
-            </button>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="glass-card border-white/5 px-2 py-0.5 rounded text-[11px] font-bold text-slate-400 uppercase flex items-center gap-2">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
-              ATUALIZADO: {lastUpdate.toLocaleTimeString('pt-BR')}
-              <button 
-                onClick={fetchData}
-                disabled={loading}
-                className="ml-1 hover:text-emerald-400 transition-colors disabled:opacity-50"
-                title="Atualizar agora"
-              >
-                <Zap className={cn("w-3 h-3", loading && "animate-spin text-emerald-500")} />
-              </button>
-            </div>
-            <div className="glass-card border-white/5 px-2 py-0.5 rounded text-[11px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-              FILTRO: N/A
-            </div>
-          </div>
-        </div>
-
-        <motion.div 
-          initial={{ y: -20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
+      {/* Sidebar */}
+      <aside className={cn(
+        "flex flex-col gap-8 relative z-20 transition-all duration-300 ease-in-out",
+        isSidebarCollapsed ? "w-20" : "w-72"
+      )}>
+        {/* Toggle Button */}
+        <button 
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className="absolute -right-3 top-20 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.5)] hover:scale-110 transition-transform z-30"
         >
-          <h1 className="text-xl font-black text-white uppercase tracking-[0.3em] mb-1 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]">
-            CONTROLE DE CARGAS
-          </h1>
-          <div className="glass-card tech-border rounded-xl px-12 py-2 flex flex-col items-center glow-emerald group hover:scale-105 transition-transform cursor-default">
-            <div className="corner-accent corner-tl" />
-            <div className="corner-accent corner-tr" />
-            <div className="corner-accent corner-bl" />
-            <div className="corner-accent corner-br" />
-            <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-[0.4em] opacity-70">TOTAL CARGAS</span>
-            <span className="text-6xl font-black text-white leading-none font-mono tracking-tighter text-glow-emerald">{stats.total}</span>
-          </div>
-        </motion.div>
+          {isSidebarCollapsed ? <ChevronRight className="w-4 h-4 text-white" /> : <ChevronLeft className="w-4 h-4 text-white" />}
+        </button>
 
-        <div className="flex flex-col items-end gap-2">
-          {/* Logo and Text */}
-          <div className="flex items-center gap-2 mb-1">
-            <div className="relative w-12 h-8 flex items-center justify-center">
-              <svg viewBox="0 0 48 32" className="w-full h-full">
-                {/* Top White Link */}
-                <path 
-                  d="M12 16 A8 8 0 1 1 28 16" 
-                  fill="none" 
-                  stroke="white" 
-                  strokeWidth="5" 
-                  strokeLinecap="round"
-                />
-                {/* Bottom Green Link */}
-                <path 
-                  d="M36 16 A8 8 0 1 1 20 16" 
-                  fill="none" 
-                  stroke="#10b981" 
-                  strokeWidth="5" 
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-            <div className="flex flex-col -space-y-1">
-              <span className="text-2xl font-black text-white leading-none tracking-tight">giro</span>
-              <span className="text-2xl font-black text-white leading-none tracking-tight">trade</span>
-            </div>
+        {/* Logo and Text */}
+        <div className={cn("flex items-center gap-3 px-2", isSidebarCollapsed && "justify-center")}>
+          <div className="relative w-14 h-10 flex items-center justify-center shrink-0">
+            <svg viewBox="0 0 48 32" className="w-full h-full">
+              <path 
+                d="M12 16 A8 8 0 1 1 28 16" 
+                fill="none" 
+                stroke="white" 
+                strokeWidth="5" 
+                strokeLinecap="round"
+              />
+              <path 
+                d="M36 16 A8 8 0 1 1 20 16" 
+                fill="none" 
+                stroke="#10b981" 
+                strokeWidth="5" 
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
-
-          {/* Buttons */}
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setView(view === 'dashboard' ? 'reports' : 'dashboard')}
-              className={cn(
-                "border px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-2xl active:scale-95",
-                view === 'dashboard' 
-                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-500" 
-                  : "bg-blue-500/10 border-blue-500/40 text-blue-500"
-              )}
-            >
-              {view === 'dashboard' ? <BarChart3 className="w-4 h-4" /> : <LayoutDashboard className="w-4 h-4" />}
-              <span className="text-[10px] font-black uppercase tracking-widest">
-                {view === 'dashboard' ? 'RELATÓRIOS' : 'DASHBOARD'}
-              </span>
-            </button>
-            <button 
-              onClick={() => setTvMode(!tvMode)}
-              className={cn(
-                "px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-2xl active:scale-95 border",
-                tvMode 
-                  ? "bg-orange-500/20 border-orange-500/50 text-orange-500 animate-pulse" 
-                  : "bg-[#0f172a] border-slate-800/40 text-[#64748b] hover:bg-slate-800"
-              )}
-            >
-              <Tv className="w-4 h-4" />
-              <span className="text-[10px] font-black uppercase tracking-widest">MODO TV</span>
-            </button>
-          </div>
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={cn("flex flex-col -space-y-1", isSidebarCollapsed && "hidden")}
+          >
+            <span className="text-3xl font-black text-white leading-none tracking-tight">giro</span>
+            <span className="text-3xl font-black text-white leading-none tracking-tight">trade</span>
+          </motion.div>
+          {isSidebarCollapsed && (
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center -space-y-1">
+              <span className="text-[10px] font-black text-white uppercase tracking-tighter">giro</span>
+              <span className="text-[10px] font-black text-white uppercase tracking-tighter">trade</span>
+            </div>
+          )}
         </div>
-      </header>
 
-      <AnimatePresence mode="wait">
+        {/* Navigation Tabs */}
+        <div className="flex flex-col gap-2 bg-slate-900/50 p-2 rounded-3xl border border-white/5">
+          <button 
+            onClick={() => setView('dashboard')}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden text-left",
+              view === 'dashboard' ? "text-white" : "text-slate-500 hover:text-slate-300",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            {view === 'dashboard' && (
+              <motion.div 
+                layoutId="navTab" 
+                className="absolute inset-0 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-3">
+              <LayoutDashboard className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && <span>Inbound</span>}
+            </span>
+          </button>
+          <button 
+            onClick={() => setView('reports')}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden text-left",
+              view === 'reports' ? "text-white" : "text-slate-500 hover:text-slate-300",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            {view === 'reports' && (
+              <motion.div 
+                layoutId="navTab" 
+                className="absolute inset-0 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-3">
+              <FileText className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && <span>Relatório de Armazenagem</span>}
+            </span>
+          </button>
+          <button 
+            onClick={() => setView('analytics')}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden text-left",
+              view === 'analytics' ? "text-white" : "text-slate-500 hover:text-slate-300",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            {view === 'analytics' && (
+              <motion.div 
+                layoutId="navTab" 
+                className="absolute inset-0 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-3">
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              {!isSidebarCollapsed && <span>BI Analítico</span>}
+            </span>
+          </button>
+          <button 
+            onClick={() => setView('devolucao')}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden text-left flex items-center gap-3",
+              view === 'devolucao' ? "text-white" : "text-slate-500 hover:text-slate-300",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            {view === 'devolucao' && (
+              <motion.div 
+                layoutId="navTab" 
+                className="absolute inset-0 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <RotateCcw className={cn("w-4 h-4 relative z-10 shrink-0", view === 'devolucao' ? "text-white" : "text-slate-500")} />
+            {!isSidebarCollapsed && <span className="relative z-10">DEVOLUÇÃO</span>}
+          </button>
+          <button 
+            onClick={() => setView('daily_report')}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all relative overflow-hidden text-left flex items-center gap-3",
+              view === 'daily_report' ? "text-white" : "text-slate-500 hover:text-slate-300",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            {view === 'daily_report' && (
+              <motion.div 
+                layoutId="navTab" 
+                className="absolute inset-0 bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              />
+            )}
+            <ClipboardList className={cn("w-4 h-4 relative z-10 shrink-0", view === 'daily_report' ? "text-white" : "text-slate-500")} />
+            {!isSidebarCollapsed && <span className="relative z-10">REPORTE DIÁRIO</span>}
+          </button>
+        </div>
+
+        <div className="mt-auto">
+          <button 
+            onClick={() => setTvMode(!tvMode)}
+            className={cn(
+              "w-full px-6 py-4 rounded-2xl flex items-center gap-3 transition-all shadow-2xl active:scale-95 border text-[10px] font-black uppercase tracking-widest",
+              tvMode 
+                ? "bg-orange-500/20 border-orange-500/50 text-orange-500 animate-pulse" 
+                : "bg-[#0f172a] border-slate-800/40 text-[#64748b] hover:bg-slate-800",
+              isSidebarCollapsed && "px-0 flex justify-center"
+            )}
+          >
+            <Tv className="w-5 h-5 shrink-0" />
+            {!isSidebarCollapsed && <span>MODO TV</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col gap-4 min-w-0 min-h-0">
+        {/* Header */}
+        <header className="flex items-center justify-between relative z-10">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={handlePrevDay}
+                  className="glass-card border-white/10 p-1 rounded hover:bg-white/5 transition-colors"
+                  title="Dia anterior"
+                >
+                  <ChevronLeft className="w-4 h-4 text-slate-400" />
+                </button>
+                <div className="glass-card border-emerald-500/30 px-3 py-1 rounded-md flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.2em] text-emerald-400 min-w-[120px] justify-center">
+                  <Clock className="w-4 h-4 animate-pulse" />
+                  {selectedDate === todayFormatted ? `HOJE: ${selectedDate}` : selectedDate}
+                </div>
+                <button 
+                  onClick={handleNextDay}
+                  className="glass-card border-white/10 p-1 rounded hover:bg-white/5 transition-colors"
+                  title="Próximo dia"
+                >
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="glass-card border-white/5 px-2 py-0.5 rounded text-[11px] font-bold text-slate-400 uppercase flex items-center gap-2">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                ATUALIZADO: {lastUpdate.toLocaleTimeString('pt-BR')}
+                <button 
+                  onClick={fetchData}
+                  disabled={loading}
+                  className="ml-1 hover:text-emerald-400 transition-colors disabled:opacity-50"
+                  title="Atualizar agora"
+                >
+                  <Zap className={cn("w-3 h-3", loading && "animate-spin text-emerald-500")} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {view === 'dashboard' && (
+            <motion.div 
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center"
+            >
+              <h1 className="text-xl font-black text-white uppercase tracking-[0.3em] mb-1 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]">
+                CONTROLE DE CARGAS
+              </h1>
+              <div className="glass-card tech-border rounded-xl px-12 py-2 flex flex-col items-center glow-emerald group hover:scale-105 transition-transform cursor-default">
+                <div className="corner-accent corner-tl" />
+                <div className="corner-accent corner-tr" />
+                <div className="corner-accent corner-bl" />
+                <div className="corner-accent corner-br" />
+                <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-[0.4em] opacity-70">TOTAL CARGAS</span>
+                <span className="text-6xl font-black text-white leading-none font-mono tracking-tighter text-glow-emerald">{stats.total}</span>
+              </div>
+            </motion.div>
+          )}
+        </header>
+
+        <AnimatePresence mode="wait">
         {view === 'dashboard' ? (
           <motion.div 
             key="dashboard"
@@ -906,7 +3039,7 @@ export default function App() {
             className="flex flex-col gap-4 flex-1 min-h-0 relative"
           >
             {/* Background Logo Watermark */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[800px] opacity-[0.15] pointer-events-none z-0">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1200px] h-[1000px] opacity-[0.25] pointer-events-none z-0">
               <svg viewBox="0 0 48 32" className="w-full h-full overflow-visible">
                 <path 
                   d="M12 16 A8 8 0 1 1 28 16" 
@@ -926,31 +3059,63 @@ export default function App() {
                 />
               </svg>
             </div>
-            {/* Top Cards */}
-            <div className="grid grid-cols-3 gap-4 h-48 relative z-10">
-        {/* Storage Summary */}
+            {/* Top Cards Row */}
+            <div className="grid grid-cols-3 gap-3 min-h-[170px] relative z-10 shrink-0">
+        {/* Combined Storage & Empty Positions */}
         <motion.div 
           initial={{ x: -50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ delay: 0.1 }}
-          className="glass-card tech-border rounded-2xl p-4 flex flex-col group hover:glow-emerald transition-all"
+          className="glass-card tech-border rounded-xl p-3 flex flex-col group hover:glow-emerald transition-all"
         >
           <div className="corner-accent corner-tl opacity-40" />
           <div className="corner-accent corner-br opacity-40" />
-          <h3 className="text-[10px] font-bold text-emerald-500/70 uppercase tracking-[0.3em] mb-3 border-b border-white/5 pb-2 flex justify-between">
-            <span>TIPO DE ARMAZENAGEM / QNT PALETES</span>
-            <span className="text-[10px] opacity-50 font-mono">V.2.5</span>
-          </h3>
-          <div className="flex-1 flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar">
-            {Object.entries(stats.storageSummary).map(([type, count]) => (
-              <div key={type} className="flex justify-between items-center text-[11px] font-bold group/item">
-                <span className="text-slate-400 uppercase group-hover/item:text-emerald-400 transition-colors flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-500/30 rounded-full" />
-                  {type}
-                </span>
-                <span className="text-white font-mono bg-emerald-500/5 px-1.5 rounded">{count} <span className="text-[10px] opacity-50">PLTS</span></span>
-              </div>
-            ))}
+          <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-1.5">
+            <h3 className="text-[10px] font-bold text-emerald-500/70 uppercase tracking-[0.3em]">
+              RESUMO DE ARMAZENAGEM E POSIÇÕES
+            </h3>
+            <div className="flex items-center gap-2">
+              <Zap className={cn("w-3 h-3", (loading || mapaLoading) && "animate-spin text-emerald-400")} />
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-visible flex justify-center">
+            <table className="w-full text-[11px] font-bold border-separate border-spacing-y-0.5">
+              <thead>
+                <tr className="text-[9px] text-slate-500 uppercase tracking-widest text-left">
+                  <th className="pb-1 pl-2">TIPO ARMAZENAGEM</th>
+                  <th className="pb-1 text-center">PALETES</th>
+                  <th className="pb-1 text-center font-black">VAZIOS</th>
+                  <th className="pb-1 text-right pr-2">SALDO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ALLOWED_SECTORS.map((sector) => {
+                  const pallets = stats.storageSummary[sector] || 0;
+                  const empty = mapaData[sector] || 0;
+                  const total = empty - pallets;
+                  return (
+                    <tr key={sector} className="group/row hover:bg-white/5 transition-colors">
+                      <td className="py-0.5 pl-2 text-slate-400 uppercase flex items-center gap-2">
+                        <div className="w-1 h-1 bg-emerald-500/30 rounded-full" />
+                        {sector}
+                      </td>
+                      <td className="py-0.5 text-center">
+                        <span className="text-white font-mono bg-emerald-500/5 px-1 rounded">{pallets}</span>
+                      </td>
+                      <td className="py-0.5 text-center">
+                        <span className="text-blue-400 font-mono bg-blue-500/5 px-1 rounded">{empty}</span>
+                      </td>
+                      <td className="py-0.5 text-right pr-2">
+                        <span className="text-emerald-400 font-mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                          {total}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </motion.div>
 
@@ -959,7 +3124,7 @@ export default function App() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="glass-card tech-border rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden group hover:glow-orange transition-all"
+          className="glass-card tech-border rounded-xl p-4 flex flex-col items-center justify-center relative overflow-hidden group hover:glow-orange transition-all"
         >
           <div className="corner-accent corner-tr border-orange-500/40" />
           <div className="corner-accent corner-bl border-orange-500/40" />
@@ -969,7 +3134,7 @@ export default function App() {
               <span className="w-2.5 h-2.5 bg-orange-500 rounded-full animate-ping shadow-[0_0_10px_rgba(249,115,22,0.8)]" />
               EM OPERAÇÃO
             </span>
-            <span className="text-9xl font-black text-white leading-none font-mono tracking-tighter drop-shadow-[0_0_20px_rgba(255,165,0,0.5)]">
+            <span className="text-7xl font-black text-white leading-none font-mono tracking-tighter drop-shadow-[0_0_20px_rgba(255,165,0,0.5)]">
               {stats.emOperacao.length}
             </span>
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 font-mono">CARGAS EM DOCA</span>
@@ -982,36 +3147,35 @@ export default function App() {
           initial={{ x: 50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="glass-card tech-border rounded-2xl p-4 flex flex-col group hover:glow-emerald transition-all"
+          className="glass-card tech-border rounded-xl p-4 flex flex-col group hover:glow-emerald transition-all"
         >
           <div className="corner-accent corner-tr opacity-40" />
           <div className="corner-accent corner-bl opacity-40" />
           <h3 className="text-[10px] font-bold text-emerald-500/70 uppercase tracking-[0.3em] mb-3 border-b border-white/5 pb-2 flex justify-between">
             <span>FINALIZADOS</span>
-            <span className="text-[10px] opacity-50 font-mono">ARQUIVO_01</span>
           </h3>
-          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1.5 px-2">
             {[
               { label: 'NÃO (CIF)', val: stats.finalizadosByType.cif, color: 'text-slate-400' },
               { label: 'SIM (FOB)', val: stats.finalizadosByType.fob, color: 'text-slate-400' },
               { label: 'NOSHOW', val: stats.finalizadosByType.noshow, color: 'text-red-400' },
               { label: 'RECUSADO', val: stats.finalizadosByType.recusado, color: 'text-red-500' },
             ].map((row) => (
-              <div key={row.label} className="flex justify-between items-center text-[10px] font-bold">
-                <span className={cn("uppercase", row.color)}>{row.label}</span>
-                <span className="text-white font-mono bg-white/5 px-1.5 rounded">{row.val}</span>
+              <div key={row.label} className="flex justify-between items-center text-[11px] font-black">
+                <span className={cn("uppercase tracking-tighter", row.color)}>{row.label}</span>
+                <span className="text-white font-mono bg-white/5 px-2 rounded-sm border border-white/5">{row.val}</span>
               </div>
             ))}
-            <div className="flex justify-between items-center text-[13px] font-black border-t border-white/10 pt-2 mt-1">
+            <div className="flex justify-between items-center text-[14px] font-black border-t border-white/10 pt-1.5 mt-0.5">
               <span className="text-emerald-500 uppercase tracking-[0.2em]">TOTAL</span>
-              <span className="text-emerald-500 font-mono text-2xl text-glow-emerald">{stats.finalizados.length}</span>
+              <span className="text-emerald-500 font-mono text-xl text-glow-emerald">{stats.finalizados.length}</span>
             </div>
           </div>
         </motion.div>
       </div>
 
       {/* Main Content Columns */}
-      <div className="flex-1 grid grid-cols-3 gap-4 min-h-0 relative z-10">
+      <div className="flex-1 grid grid-cols-3 gap-3 min-h-0 relative z-10 overflow-hidden">
         {/* Column 1: Waiting */}
         <motion.div 
           initial={{ y: 50, opacity: 0 }}
@@ -1024,7 +3188,7 @@ export default function App() {
             <h2 className="text-[10px] font-black text-white uppercase tracking-[0.2em] italic relative z-10">AGUARDANDO / PÁTIO</h2>
             <span className="bg-white/20 px-2 py-0.5 rounded-full text-[11px] font-black text-white font-mono relative z-10">{stats.aguardando.length}</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-1 flex flex-col gap-1 custom-scrollbar">
             {stats.aguardando.length > 0 ? (
               stats.aguardando.map((item, idx) => (
                 <motion.div 
@@ -1032,13 +3196,13 @@ export default function App() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.5 + (idx * 0.05) }}
-                  className="border-b border-white/5 pb-2 group hover:bg-blue-500/5 transition-all p-2 rounded-lg cursor-default"
+                  className="border-b border-white/5 pb-1 group hover:bg-blue-500/5 transition-all p-1 rounded-lg cursor-default"
                 >
-                  <div className="text-[10px] font-black text-white uppercase truncate group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                  <div className="text-[11px] font-black text-white uppercase truncate group-hover:text-blue-400 transition-colors flex items-center gap-2">
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full group-hover:animate-ping" />
                     {formatSupplierName(item.fornecedor)}
                   </div>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase mt-0.5 tracking-widest font-mono">{item.tipoArmazenagem}</div>
+                  <div className="text-[9px] font-bold text-slate-500 uppercase mt-0.5 tracking-widest font-mono">{item.tipoArmazenagem}</div>
                 </motion.div>
               ))
             ) : (
@@ -1069,7 +3233,7 @@ export default function App() {
                   <tr className="text-[8px] font-bold text-slate-500 uppercase tracking-[0.2em] border-b border-white/5">
                     <th className="px-3 py-1.5">FORNECEDOR</th>
                     <th className="px-3 py-1.5 text-center">DOCA</th>
-                    <th className="px-3 py-1.5 text-center">STATUS</th>
+                    <th className="px-3 py-1 text-center">STATUS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1084,20 +3248,20 @@ export default function App() {
 
                     return (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
-                        <td className="px-3 py-2">
-                          <div className={cn("text-[9px] font-black uppercase leading-tight transition-colors", nameColor)}>
-                            {formatSupplierName(item.fornecedor)}
-                          </div>
-                          <div className="text-[8px] font-bold text-slate-500 uppercase mt-0.5 flex items-center gap-1 font-mono">
-                            OR: {item.ordem} <Zap className="w-2 h-2 fill-orange-500 text-orange-500 animate-pulse" />
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <span className="text-2xl font-black text-orange-400 leading-none font-mono drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]">{item.doca}</span>
-                        </td>
-                        <td className="px-3 py-2 text-center">
+                    <td className="px-3 py-0.5">
+                      <div className={cn("text-[11px] font-black uppercase leading-[1] transition-colors", nameColor)}>
+                        {formatSupplierName(item.fornecedor)}
+                      </div>
+                      <div className="text-[9px] font-bold text-slate-500 uppercase mt-0.5 flex items-center gap-1 font-mono">
+                        OR: {item.ordem} <Zap className="w-2 h-2 fill-orange-500 text-orange-500 animate-pulse" />
+                      </div>
+                    </td>
+                    <td className="px-3 py-0.5 text-center">
+                      <span className="text-2xl font-black text-orange-400 leading-none font-mono drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]">{item.doca}</span>
+                    </td>
+                    <td className="px-3 py-0.5 text-center">
                           <span className={cn(
-                            "border text-[8px] font-black px-1.5 py-0.5 rounded-sm uppercase tracking-widest whitespace-nowrap",
+                            "border text-[10px] font-black px-2 py-1 rounded-sm uppercase tracking-widest whitespace-nowrap",
                             statusLower.includes('descarga') && !statusLower.includes('aguardando') 
                               ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
                               : (statusLower.includes('conferência') || statusLower.includes('conferencia'))
@@ -1142,7 +3306,8 @@ export default function App() {
                     <th className="px-1 py-1.5 text-center">TIPO</th>
                     <th className="px-1 py-1.5 text-center">SAÍDAS</th>
                     <th className="px-1 py-1.5 text-center">HORA</th>
-                    <th className="px-1 py-1.5 text-center">MÉDIO</th>
+                    <th className="px-1 py-1.5 text-center">TEMPO DA CONFERÊNCIA</th>
+                    <th className="px-1 py-1.5 text-center">TEMPO TOTAL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1150,26 +3315,29 @@ export default function App() {
                     const isAlert = item.status.toLowerCase().includes('noshow') || item.status.toLowerCase().includes('recusado');
                     return (
                       <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-1">
                           <div className={cn(
-                            "text-[8px] font-black uppercase transition-colors",
+                            "text-[11px] font-black uppercase transition-colors shrink-0",
                             isAlert ? "text-rose-500" : "text-white group-hover:text-emerald-400"
                           )}>
                             {formatSupplierName(item.fornecedor)}
                           </div>
-                          <div className="text-[7px] font-bold text-slate-500 uppercase mt-0.5 font-mono">OR: {item.ordem}</div>
+                          <div className="text-[9px] font-bold text-slate-500 uppercase mt-0.5 font-mono">OR: {item.ordem}</div>
                         </td>
-                      <td className="px-1 py-2 text-center">
-                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-tighter">{item.tipo.includes('NÃO') ? 'NÃO(CIF)' : 'SIM(FOB)'}</span>
+                      <td className="px-1 py-1 text-center">
+                        <span className="text-[10px] font-black text-blue-400 uppercase tracking-tighter">{item.tipo.includes('NÃO') ? 'NÃO' : 'SIM'}</span>
                       </td>
-                      <td className="px-1 py-2 text-center">
-                        <span className="bg-emerald-500/20 text-emerald-500 text-[9px] font-black px-1 py-0.5 rounded font-mono">1</span>
+                      <td className="px-1 py-1 text-center">
+                        <span className="bg-emerald-500/20 text-emerald-500 text-[11px] font-black px-1.5 py-1 rounded font-mono">1</span>
                       </td>
-                      <td className="px-1 py-2 text-center">
-                        <span className="text-[9px] font-bold text-slate-300 font-mono">{item.fimConferencia.split(' ')[1]?.substring(0, 5) || '--:--'}</span>
+                      <td className="px-1 py-1 text-center">
+                        <span className="text-[11px] font-bold text-slate-300 font-mono">{item.fimConferencia.split(' ')[1]?.substring(0, 5) || '--:--'}</span>
                       </td>
-                      <td className="px-1 py-2 text-center">
-                        <span className="text-[9px] font-black text-emerald-500 italic font-mono">{calculateTimeDiff(item.chegadaDoca, item.fimConferencia)}</span>
+                      <td className="px-1 py-1 text-center">
+                        <span className="text-[11px] font-black text-blue-400 italic font-mono">{calculateTimeDiff(item.inicioConferencia, item.fimConferencia)}</span>
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <span className="text-[11px] font-black text-emerald-500 italic font-mono">{calculateTimeDiff(item.chegadaDoca, item.fimConferencia)}</span>
                       </td>
                     </tr>
                   );
@@ -1186,14 +3354,32 @@ export default function App() {
         </motion.div>
       </div>
     </motion.div>
-        ) : (
+        ) : view === 'reports' ? (
           <ReportsView 
-            data={data} 
-            selectedDate={selectedDate} 
-            uniqueDates={uniqueDates}
+            operadoresData={operadoresData} 
+            loading={operadoresLoading}
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            pendingLots={pendingLots}
+            pendingLoading={pendingLoading}
           />
+        ) : view === 'analytics' ? (
+          <AnalyticsView selectedDate={selectedDate} />
+        ) : view === 'daily_report' ? (
+          <DailyReportView 
+            stats={stats} 
+            mapaData={mapaData} 
+            mapaLoading={mapaLoading}
+            operadoresData={operadoresData}
+            operadoresLoading={operadoresLoading}
+            pendingLots={pendingLots}
+            pendingLoading={pendingLoading}
+          />
+        ) : (
+          <DevolucaoView />
         )}
       </AnimatePresence>
+    </main>
 
       <style dangerouslySetInnerHTML={{ __html: `
         .custom-scrollbar::-webkit-scrollbar {
